@@ -199,7 +199,7 @@ public class BatteryStatus {
      * @return true if the device is charged
      */
     public static boolean isCharged(int status, int level) {
-        return status == BATTERY_STATUS_FULL || level >= 100;
+        return status == BATTERY_STATUS_FULL || (status == BATTERY_STATUS_UNKNOWN && level >= 100);
     }
 
     /**
