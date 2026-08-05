@@ -138,7 +138,7 @@ public final class GmsManagerService extends SystemService {
                                 0, userId, mOpPackageName);
                     } else {
                         mPM.setApplicationEnabledSetting(packageName,
-                                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                                PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
                                 0, userId, mOpPackageName);
                     }
                 } catch (IllegalArgumentException ignored) {}
