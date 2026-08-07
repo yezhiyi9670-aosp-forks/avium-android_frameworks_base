@@ -128,9 +128,7 @@ constructor(
         udfpsOverlayParams
             .map { params ->
                 val sensorWidth = params.nativeSensorBounds.right - params.nativeSensorBounds.left
-                val iconScaleFactor = 1.5f
-                val scaledIconSize = (iconSize * iconScaleFactor).toInt()
-                val nativePadding = (sensorWidth - scaledIconSize) / 2
+                val nativePadding = (sensorWidth - iconSize) / 2
                 // padding can be negative when udfpsOverlayParams has not been initialized yet.
                 max(0, (nativePadding * params.scaleFactor).toInt())
             }
