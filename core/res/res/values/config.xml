@@ -1649,6 +1649,14 @@
     <!-- Light sensor event rate in milliseconds for automatic brightness control. -->
     <integer name="config_autoBrightnessLightSensorRate">250</integer>
 
+    <!-- Framework-level scaling factor multiplied to ambient light (TYPE_LIGHT) sensor readings.
+         This might be needed to correct devices whose ambient light sensor HAL is proprietary
+         and reports readings of the wrong magnitude.
+         
+         Prefer HAL, kernel or device tree corrections if possible. Use this only as a last
+         resort. -->
+    <item name="config_ambientLightSensorScaleFactor" format="float" type="dimen">1.0</item>
+
     <!-- The maximum range of gamma adjustment possible using the screen
          auto-brightness adjustment setting. -->
     <fraction name="config_autoBrightnessAdjustmentMaxGamma">300%</fraction>

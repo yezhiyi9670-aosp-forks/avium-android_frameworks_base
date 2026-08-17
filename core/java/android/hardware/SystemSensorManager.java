@@ -149,6 +149,7 @@ public class SystemSensorManager extends SensorManager {
     private final SensorBlockManager mSensorBlockManager;
     private final String mOpPackageName;
     private final boolean mSystemApp;
+    private final float mAmbientLightSensorScaleFactor;
     private long mLastSensorBlockCheckTime = -1;
     private boolean mLastSensorBlockCheckResult = false;
 
@@ -174,6 +175,8 @@ public class SystemSensorManager extends SensorManager {
         mOpPackageName = context.getOpPackageName();
         mSystemApp = (appInfo.flags &
                 (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
+        mAmbientLightSensorScaleFactor = mContext.getResources().getFloat(
+                com.android.internal.R.dimen.config_ambientLightSensorScaleFactor);
 
         // initialize the sensor list
         if (getSensorPolicy(mContext.getDeviceId()) == DEVICE_POLICY_CUSTOM) {
@@ -1083,6 +1086,11 @@ public class SystemSensorManager extends SensorManager {
                 // This may happen if the client has unregistered and there are pending events in
                 // the queue waiting to be delivered. Ignore.
                 return;
+            }
+            // Light sensor scaling - some devices need a framework-level light sensor scaling
+            // since the HAL is proprietary and does not emit readings of the correct magnitude.
+            if (sensor.getType() == Sensor.TYPE_LIGHT) {
+                values[0] = values[0] * mManager.mAmbientLightSensorScaleFactor;
             }
             // Copy from the values array.
             System.arraycopy(values, 0, t.values, 0, t.values.length);

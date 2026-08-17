@@ -6387,4 +6387,6 @@
 
     <java-symbol type="string" name="config_avium_hide_sysapp_notifs_default" />
     <java-symbol type="string" name="config_avium_disable_sensor_apps_default" />
+
+    <java-symbol type="dimen" name="config_ambientLightSensorScaleFactor" />
 </resources>
