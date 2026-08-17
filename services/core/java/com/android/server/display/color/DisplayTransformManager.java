@@ -86,6 +86,8 @@ public class DisplayTransformManager {
     static final String PERSISTENT_PROPERTY_COMPOSITION_COLOR_MODE = "persist.sys.sf.color_mode";
     @VisibleForTesting
     static final String PERSISTENT_PROPERTY_DISPLAY_COLOR = "persist.sys.sf.native_mode";
+    @VisibleForTesting
+    static final String READONLY_PROPERTY_USE_LINEAR_COLOR_MATRIX = "ro.sf.use_linear_color_matrix";
 
     private static final float COLOR_SATURATION_NATURAL = 1.0f;
     private static final float COLOR_SATURATION_BOOSTED = 1.1f;
@@ -251,6 +253,10 @@ public class DisplayTransformManager {
      * Return true when the color matrix works in linear space.
      */
     public boolean needsLinearColorMatrix() {
+        int propValue = SystemProperties.getInt(READONLY_PROPERTY_USE_LINEAR_COLOR_MATRIX, -1);
+        if(propValue != -1) {
+            return propValue != 0;
+        }
         return SystemProperties.getInt(PERSISTENT_PROPERTY_DISPLAY_COLOR,
                 DISPLAY_COLOR_UNMANAGED) != DISPLAY_COLOR_UNMANAGED;
     }
@@ -259,6 +265,10 @@ public class DisplayTransformManager {
      * Return true when the specified colorMode requires the color matrix to work in linear space.
      */
     public boolean needsLinearColorMatrix(int colorMode) {
+        int propValue = SystemProperties.getInt(READONLY_PROPERTY_USE_LINEAR_COLOR_MATRIX, -1);
+        if(propValue != -1) {
+            return propValue != 0;
+        }
         return colorMode != ColorDisplayManager.COLOR_MODE_SATURATED;
     }
 
