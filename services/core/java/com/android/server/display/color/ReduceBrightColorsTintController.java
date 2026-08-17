@@ -35,7 +35,9 @@ public class ReduceBrightColorsTintController extends TintController {
 
     private final float[] mMatrix = new float[16];
     private final float[] mCoefficients = new float[3];
+    private final float[] mLinearCoefficients = new float[3];
 
+    private boolean hasSetUp = false;
     private int mStrength;
 
     @Override
@@ -46,6 +48,12 @@ public class ReduceBrightColorsTintController extends TintController {
         for (int i = 0; i < 3 && i < coefficients.length; i++) {
             mCoefficients[i] = Float.parseFloat(coefficients[i]);
         }
+        final String[] linearCoefficients = context.getResources().getStringArray(
+                R.array.config_reduceBrightColorsCoefficients);
+        for (int i = 0; i < 3 && i < linearCoefficients.length; i++) {
+            mLinearCoefficients[i] = Float.parseFloat(linearCoefficients[i]);
+        }
+        hasSetUp = true;
     }
 
     @Override
@@ -112,7 +120,15 @@ public class ReduceBrightColorsTintController extends TintController {
     /** Returns the offset factor at Ymax. */
     public float getOffsetFactor() {
         // Strength terms drop out as strength --> 1, leaving the coefficients.
-        return mCoefficients[0] + mCoefficients[1] + mCoefficients[2];
+        float offset = mLinearCoefficients[0] + mLinearCoefficients[1] + mLinearCoefficients[2];
+        // ColorDisplayServiceInternal#fetchEvenDimmerSpline determines if the tint controller
+        // is not ready yet by checking if the return value is zero.
+        // So when not set up yet, return zero as-is, and when set up, always return non zero
+        // even if the curve reaches zero.
+        if(hasSetUp && offset < 1e-5f) {
+            return 1e-5f;
+        }
+        return offset;
     }
 
     /**
@@ -120,7 +136,15 @@ public class ReduceBrightColorsTintController extends TintController {
      * of the bright color reduction.
      */
     public float getAdjustedBrightness(float nits) {
-        return computeComponentValue(mStrength) * nits;
+        float component = computeLinearComponentValue(mStrength);
+        // ColorDisplayServiceInternal#fetchEvenDimmerSpline determines if the tint controller
+        // is not ready yet by checking if the return value is zero.
+        // So when not set up yet, return zero as-is, and when set up, always return non zero
+        // even if the curve reaches zero.
+        if(hasSetUp && component < 1e-5f) {
+            return 1e-5f * nits;
+        }
+        return component * nits;
     }
 
     /**
@@ -128,7 +152,15 @@ public class ReduceBrightColorsTintController extends TintController {
      * of the bright color reduction.
      */
     public float getAdjustedNitsForStrength(float nits, int strength) {
-        return computeComponentValue(strength) * nits;
+        float component = computeLinearComponentValue(strength);
+        // ColorDisplayServiceInternal#fetchEvenDimmerSpline determines if the tint controller
+        // is not ready yet by checking if the return value is zero.
+        // So when not set up yet, return zero as-is, and when set up, always return non zero
+        // even if the curve reaches zero.
+        if(hasSetUp && component < 1e-5f) {
+            return 1e-5f * nits;
+        }
+        return component * nits;
     }
 
     private float computeComponentValue(int strengthLevel) {
@@ -137,5 +169,13 @@ public class ReduceBrightColorsTintController extends TintController {
         return clamp(
                 squaredPercentageStrength * mCoefficients[0] + percentageStrength * mCoefficients[1]
                         + mCoefficients[2]);
+    }
+
+    private float computeLinearComponentValue(int strengthLevel) {
+        final float percentageStrength = strengthLevel / 100f;
+        final float squaredPercentageStrength = percentageStrength * percentageStrength;
+        return clamp(
+                squaredPercentageStrength * mLinearCoefficients[0] + percentageStrength * mLinearCoefficients[1]
+                        + mLinearCoefficients[2]);
     }
 }
