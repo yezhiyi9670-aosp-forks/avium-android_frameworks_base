@@ -642,7 +642,7 @@ public class DisplayManagerFlags {
             // Adjust lengths if we end up with longer names
             final int nameLength = mName.length();
             return TextUtils.substring(mName,  41, nameLength) + ": "
-                    + TextUtils.formatSimple("%" + (93 - nameLength) + "s%s", " " , isEnabled())
+                    + TextUtils.formatSimple("%" + Math.max(0, 93 - nameLength) + "s%s", " " , isEnabled())
                     + " (def:" + mFlagFunction.get() + ")";
         }
     }
