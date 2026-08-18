@@ -689,6 +689,9 @@ public final class ColorDisplayService extends SystemService {
         if (mCurrentUser == UserHandle.USER_NULL) {
             return;
         }
+        if (mEvenDimmerActivated) {
+            return;
+        }
         final boolean activated = Secure.getIntForUser(getContext().getContentResolver(),
                 Secure.REDUCE_BRIGHT_COLORS_ACTIVATED, 0, mCurrentUser) == 1;
         mReduceBrightColorsTintController.setActivated(activated);
@@ -700,6 +703,9 @@ public final class ColorDisplayService extends SystemService {
 
     private void onReduceBrightColorsStrengthLevelChanged() {
         if (mCurrentUser == UserHandle.USER_NULL) {
+            return;
+        }
+        if (mEvenDimmerActivated) {
             return;
         }
 
