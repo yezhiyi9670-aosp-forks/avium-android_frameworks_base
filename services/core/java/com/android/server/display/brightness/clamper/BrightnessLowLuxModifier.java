@@ -89,7 +89,9 @@ public class BrightnessLowLuxModifier extends BrightnessModifier implements
             minBrightnessAllowed = getBrightnessFromNits(minNitsAllowed);
             reason = BrightnessReason.MODIFIER_MIN_LUX;
         } else {
-            minBrightnessAllowed = mDisplayDeviceConfig.getEvenDimmerTransitionPoint();
+            float luxBasedNitsLowerBound = mDisplayDeviceConfig.getMinNitsFromLux(0f);
+            minNitsAllowed = Math.max(MIN_NITS_DEFAULT, luxBasedNitsLowerBound);
+            minBrightnessAllowed = getBrightnessFromNits(minNitsAllowed);
             reason = 0;
         }
 
