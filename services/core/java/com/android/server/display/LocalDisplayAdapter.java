@@ -1063,6 +1063,10 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                         }
                     }
 
+                    private float backlightToHardwareNits(float backlight) {
+                        return getDisplayDeviceConfig().getHardwareNitsFromBacklight(backlight);
+                    }
+
                     private float backlightToNits(float backlight) {
                         return getDisplayDeviceConfig().getNitsFromBacklight(backlight);
                     }
@@ -1095,11 +1099,12 @@ final class LocalDisplayAdapter extends DisplayAdapter {
                             return;
                         }
 
-                        final float minHardwareNits = backlightToNits(brightnessToBacklight(
+                        final float transitionPointNits = backlightToHardwareNits(brightnessToBacklight(
                                 mDisplayDeviceConfig.getEvenDimmerTransitionPoint()));
                         final float backlight = brightnessToBacklight(brightnessState);
                         final float requestedNits = backlightToNits(backlight);
-                        mNitsToEvenDimmerStrength = mCdsi.fetchEvenDimmerSpline(minHardwareNits);
+                        final float hardwareNits = backlightToHardwareNits(backlight);
+                        mNitsToEvenDimmerStrength = mCdsi.fetchEvenDimmerSpline(transitionPointNits);
 
                         if (mNitsToEvenDimmerStrength == null) {
                             return;
@@ -1107,12 +1112,14 @@ final class LocalDisplayAdapter extends DisplayAdapter {
 
                         // Find required dimming strength, rounded up.
                         int strength = Math.round(mNitsToEvenDimmerStrength
-                                .interpolate(requestedNits));
+                                .interpolate(requestedNits / hardwareNits * transitionPointNits));
                         boolean enabled = strength > 0.0f;
                         if (mEvenDimmerEnabled != enabled || (DEBUG && enabled)) {
                             Slog.i(TAG, "Setting Extra Dim; strength: " + strength
                                     + ", " + (enabled ? "enabled" : "disabled")
+                                    + ", transitionPointNits: " + transitionPointNits
                                     + ", requestedNits: " + requestedNits
+                                    + ", hardwareNits: " + hardwareNits
                                     + ", brightnessState: " + brightnessState
                                     + ", backlight: " + backlight);
                         }

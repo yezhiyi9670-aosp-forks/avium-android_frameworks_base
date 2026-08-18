@@ -1148,6 +1148,21 @@ public class DisplayDeviceConfig {
     }
 
     /**
+     * Calculates the physical nits value for the specified backlight value if a mapping exists.
+     * This always uses the physical screenBrightnessMap regardless of the evenDimmer curve.
+     *
+     * @return The mapped nits or {@link BrightnessMappingStrategy.INVALID_NITS} if no mapping
+     * exits.
+     */
+    public float getHardwareNitsFromBacklight(float backlight) {
+        if (mBacklightToNitsSpline == null) {
+            return INVALID_NITS;
+        }
+        backlight = Math.max(backlight, mBacklightMinimum);
+        return mBacklightToNitsSpline.interpolate(backlight);
+    }
+
+    /**
      * Calculates the nits value for the specified backlight value if a mapping exists.
      *
      * @return The mapped nits or {@link BrightnessMappingStrategy.INVALID_NITS} if no mapping
@@ -1166,7 +1181,7 @@ public class DisplayDeviceConfig {
             return INVALID_NITS;
         }
         backlight = Math.max(backlight, mBacklightMinimum);
-        return mBacklightToNitsSpline.interpolate(backlight);
+        return getHardwareNitsFromBacklight(backlight);
     }
 
     /**
