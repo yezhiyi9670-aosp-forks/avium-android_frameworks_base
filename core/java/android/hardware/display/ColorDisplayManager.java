@@ -538,9 +538,12 @@ public final class ColorDisplayManager {
      * @hide
      */
     public static boolean isReduceBrightColorsAvailable(Context context) {
-        return context.getResources().getBoolean(R.bool.config_reduceBrightColorsAvailable)
-                && !(Flags.evenDimmer() && context.getResources().getBoolean(
-                com.android.internal.R.bool.config_evenDimmerEnabled));
+        // return context.getResources().getBoolean(R.bool.config_reduceBrightColorsAvailable)
+        //         && !(Flags.evenDimmer() && context.getResources().getBoolean(
+        //         com.android.internal.R.bool.config_evenDimmerEnabled));
+
+        // EvenDimmer is no longer conflciting with Extra Dim.
+        return context.getResources().getBoolean(R.bool.config_reduceBrightColorsAvailable);
     }
 
     /**

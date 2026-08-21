@@ -31,9 +31,10 @@ constructor(@ShadeDisplayAware private val resources: Resources) {
     /**
      * List of stock platform tiles. All of the specs will be of type [TileSpec.PlatformTileSpec].
      */
+    // EvenDimmer is no longer conflciting with Extra Dim.
     val shouldRemoveRbcTile: Boolean =
-        Flags.evenDimmer() &&
-            resources.getBoolean(com.android.internal.R.bool.config_evenDimmerEnabled)
+        false/*Flags.evenDimmer() &&
+            resources.getBoolean(com.android.internal.R.bool.config_evenDimmerEnabled)*/
 
     val stockTiles =
         resources

@@ -64,6 +64,10 @@ public class DisplayTransformManager {
      */
     public static final int LEVEL_COLOR_MATRIX_REDUCE_BRIGHT_COLORS = 250;
     /**
+     * Color transform level used by Even Dimmer reduce bright colors.
+     */
+    public static final int LEVEL_COLOR_MATRIX_EVEN_DIMMER = 265;
+    /**
      * Color transform level used by A11y services to invert the display colors.
      */
     public static final int LEVEL_COLOR_MATRIX_INVERT_COLOR = 300;

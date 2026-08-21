@@ -125,6 +125,7 @@ public final class ColorDisplayService extends SystemService {
     private static final int MSG_APPLY_GLOBAL_SATURATION = 4;
     private static final int MSG_APPLY_DISPLAY_WHITE_BALANCE = 5;
     private static final int MSG_APPLY_REDUCE_BRIGHT_COLORS = 6;
+    private static final int MSG_APPLY_EVEN_DIMMER = 7;
 
     /**
      * Return value if a setting has not been set.
@@ -175,6 +176,7 @@ public final class ColorDisplayService extends SystemService {
     private final TintController mGlobalSaturationTintController =
             new GlobalSaturationTintController();
     private final ReduceBrightColorsTintController mReduceBrightColorsTintController;
+    private final EvenDimmerTintController mEvenDimmerTintController;
 
     @VisibleForTesting
     final Handler mHandler;
@@ -206,13 +208,22 @@ public final class ColorDisplayService extends SystemService {
     private boolean mEvenDimmerActivated;
 
     public ColorDisplayService(Context context) {
-        this(context, new ReduceBrightColorsTintController());
+        this(context, new ReduceBrightColorsTintController(), new EvenDimmerTintController());
     }
 
     @VisibleForTesting
     public ColorDisplayService(Context context, ReduceBrightColorsTintController rbcController) {
+        this(context, rbcController, new EvenDimmerTintController());
+    }
+
+    @VisibleForTesting
+    public ColorDisplayService(
+        Context context, ReduceBrightColorsTintController rbcController,
+        EvenDimmerTintController edController
+    ) {
         super(context);
         mReduceBrightColorsTintController = rbcController;
+        mEvenDimmerTintController = edController;
         mHandler = new TintHandler(DisplayThread.get().getLooper());
         mVisibleBackgroundUsersEnabled = isVisibleBackgroundUsersEnabled();
         mUserManager = UserManagerService.getInstance();
@@ -483,6 +494,9 @@ public final class ColorDisplayService extends SystemService {
                 mHandler.sendEmptyMessage(MSG_APPLY_REDUCE_BRIGHT_COLORS);
             }
         }
+        if (mEvenDimmerTintController.isAvailable(getContext())) {
+            mEvenDimmerTintController.setUp(getContext(), dtm.needsLinearColorMatrix());
+        }
     }
 
     private void tearDown() {
@@ -511,6 +525,10 @@ public final class ColorDisplayService extends SystemService {
         if (mReduceBrightColorsTintController.isAvailable(getContext())) {
             mReduceBrightColorsTintController.setActivated(null);
         }
+
+        if (mEvenDimmerTintController.isAvailable(getContext())) {
+            mEvenDimmerTintController.setActivated(null);
+        }
     }
 
     // should be called in handler thread (same thread that started animation)
@@ -519,6 +537,7 @@ public final class ColorDisplayService extends SystemService {
         mNightDisplayTintController.cancelAnimator();
         mGlobalSaturationTintController.cancelAnimator();
         mReduceBrightColorsTintController.cancelAnimator();
+        mEvenDimmerTintController.cancelAnimator();
         mDisplayWhiteBalanceTintController.cancelAnimator();
     }
 
@@ -589,6 +608,7 @@ public final class ColorDisplayService extends SystemService {
         }
 
         mReduceBrightColorsTintController.cancelAnimator();
+        mEvenDimmerTintController.cancelAnimator();
         mNightDisplayTintController.cancelAnimator();
         mDisplayWhiteBalanceTintController.cancelAnimator();
 
@@ -605,6 +625,11 @@ public final class ColorDisplayService extends SystemService {
             // Re-set up RBC so that it can recalculate its transform matrix with new values.
             mReduceBrightColorsTintController.setUp(getContext(), dtm.needsLinearColorMatrix(mode));
             onReduceBrightColorsStrengthLevelChanged(); // Trigger matrix recalc + updates
+        }
+        if (mEvenDimmerTintController.isAvailable(getContext())) {
+            // Different color modes may require different coefficients to be loaded for RBC.
+            // Re-set up RBC so that it can recalculate its transform matrix with new values.
+            mEvenDimmerTintController.setUp(getContext(), dtm.needsLinearColorMatrix(mode));
         }
 
         // dtm.setColorMode() needs to be called before
@@ -689,9 +714,6 @@ public final class ColorDisplayService extends SystemService {
         if (mCurrentUser == UserHandle.USER_NULL) {
             return;
         }
-        if (mEvenDimmerActivated) {
-            return;
-        }
         final boolean activated = Secure.getIntForUser(getContext().getContentResolver(),
                 Secure.REDUCE_BRIGHT_COLORS_ACTIVATED, 0, mCurrentUser) == 1;
         mReduceBrightColorsTintController.setActivated(activated);
@@ -703,9 +725,6 @@ public final class ColorDisplayService extends SystemService {
 
     private void onReduceBrightColorsStrengthLevelChanged() {
         if (mCurrentUser == UserHandle.USER_NULL) {
-            return;
-        }
-        if (mEvenDimmerActivated) {
             return;
         }
 
@@ -1198,6 +1217,14 @@ public final class ColorDisplayService extends SystemService {
             pw.println("    Not available");
         }
 
+        pw.println("Even dimmer dimming:");
+        if (mEvenDimmerTintController.isAvailable(getContext())) {
+            pw.println("    Activated: " + mEvenDimmerTintController.isActivated());
+            mEvenDimmerTintController.dump(pw);
+        } else {
+            pw.println("    Not available");
+        }
+
         pw.println("Color mode: " + getColorModeInternal());
         pw.println("mEvenDimmerSpline: " + mEvenDimmerSpline);
     }
@@ -1673,10 +1700,10 @@ public final class ColorDisplayService extends SystemService {
          * Gets the adjusted nits, given a strength and nits.
          * @param strength of reduce bright colors
          * @param nits target nits
-         * @return the actual nits that would be output, given input nits and rbc strength.
+         * @return the actual nits that would be output, given input nits and ed strength.
          */
         public float getAdjustedNitsForStrength(float nits, int strength) {
-            return mReduceBrightColorsTintController.getAdjustedNitsForStrength(nits, strength);
+            return mEvenDimmerTintController.getAdjustedNitsForStrength(nits, strength);
         }
 
         /**
@@ -1699,21 +1726,62 @@ public final class ColorDisplayService extends SystemService {
         }
 
         /**
-         *
-         * @return whether reduce bright colors is on, due to even dimmer being activated
+         * Returns whether even dimmer dimming is currently active.
+         */
+        public boolean isEvenDimmerActivated() {
+            return mEvenDimmerTintController.isActivated();
+        }
+
+        public int getEvenDimmerStrength() {
+            return mEvenDimmerTintController.getStrength();
+        }
+
+        /**
+         * (compatibility alias)
+         * @return due to even dimmer dimming being activated
          */
         public boolean getReduceBrightColorsActivatedForEvenDimmer() {
+            return getEvenDimmerDimmingActivated();
+        }
+
+        /**
+         *
+         * @return due to even dimmer dimming being activated
+         */
+        public boolean getEvenDimmerDimmingActivated() {
             return mEvenDimmerActivated;
         }
 
         /**
-         * Gets the computed brightness, in nits, when the reduce bright colors feature is applied
+         * Gets the computed brightness, in nits, when  reduce bright colors feature is applied
          * at the current strength.
          *
          * @hide
          */
         public float getReduceBrightColorsAdjustedBrightnessNits(float nits) {
             return mReduceBrightColorsTintController.getAdjustedBrightness(nits);
+        }
+
+        /**
+         * Gets the computed brightness, in nits, when the even dimmer feature is applied
+         * at the current strength.
+         *
+         * @hide
+         */
+        public float getEvenDimmerAdjustedBrightnessNits(float nits) {
+            return mEvenDimmerTintController.getAdjustedBrightness(nits);
+        }
+
+        /**
+         * Gets the computed brightness, in nits, when the two dimming features is applied
+         * at the current strength.
+         *
+         * @hide
+         */
+        public float getDimmingAdjustedBrightnessNits(float nits) {
+            return mReduceBrightColorsTintController.getAdjustedBrightness(
+                mEvenDimmerTintController.getAdjustedBrightness(nits)
+            );
         }
 
         /**
@@ -1731,9 +1799,9 @@ public final class ColorDisplayService extends SystemService {
          */
         public void applyEvenDimmerColorChanges(boolean enabled, int strength) {
             mEvenDimmerActivated = enabled;
-            mReduceBrightColorsTintController.setActivated(enabled);
-            mReduceBrightColorsTintController.setMatrix(strength);
-            mHandler.sendEmptyMessage(MSG_APPLY_REDUCE_BRIGHT_COLORS);
+            mEvenDimmerTintController.setActivated(enabled);
+            mEvenDimmerTintController.setMatrix(strength);
+            mHandler.sendEmptyMessage(MSG_APPLY_EVEN_DIMMER);
         }
 
         /**
@@ -1823,6 +1891,9 @@ public final class ColorDisplayService extends SystemService {
                     break;
                 case MSG_APPLY_REDUCE_BRIGHT_COLORS:
                     applyTint(mReduceBrightColorsTintController, true);
+                    break;
+                case MSG_APPLY_EVEN_DIMMER:
+                    applyTint(mEvenDimmerTintController, true);
                     break;
                 case MSG_APPLY_NIGHT_DISPLAY_IMMEDIATE:
                     applyTint(mNightDisplayTintController, true);

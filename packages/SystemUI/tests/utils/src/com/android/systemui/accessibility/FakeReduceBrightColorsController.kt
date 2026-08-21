@@ -48,10 +48,12 @@ class FakeReduceBrightColorsController : ReduceBrightColorsController {
     }
 
     override fun isInUpgradeMode(resources: Resources?): Boolean {
-        if (resources != null) {
-            return Flags.evenDimmer() &&
-                resources.getBoolean(com.android.internal.R.bool.config_evenDimmerEnabled)
-        }
+        // if (resources != null) {
+        //     return Flags.evenDimmer() &&
+        //         resources.getBoolean(com.android.internal.R.bool.config_evenDimmerEnabled)
+        // }
+
+        // EvenDimmer is no longer conflciting with Extra Dim.
         return false
     }
 }

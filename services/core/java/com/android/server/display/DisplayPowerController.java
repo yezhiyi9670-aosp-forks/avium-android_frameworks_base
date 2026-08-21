@@ -1821,7 +1821,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
                 clampedState.getMinBrightness(), clampedMax,
                 brightnessState);
         final boolean evenDimmerModeOn =
-                mCdsi != null && mCdsi.getReduceBrightColorsActivatedForEvenDimmer();
+                mCdsi != null && mCdsi.getEvenDimmerDimmingActivated();
         mTempBrightnessEvent.setPercent(Math.round(
                 1000.0f * com.android.internal.display.BrightnessUtils.convertLinearToGamma(
                         brightnessOnAvailableScale) / 10)); // rounded to one dp
