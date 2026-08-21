@@ -130,7 +130,7 @@ constructor(
         }
     }
 
-    fun onIconClick() {
+    suspend fun onIconClick() {
         screenBrightnessInteractor.toggleBrightnessMode()
     }
 

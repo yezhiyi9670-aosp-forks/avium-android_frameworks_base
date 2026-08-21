@@ -78,7 +78,7 @@ class FakeScreenBrightnessRepository(
             }
     }
 
-    override fun toggleBrightnessMode() {
+    override suspend fun toggleBrightnessMode() {
         _isAutoBrightnessEnabled.value = !_isAutoBrightnessEnabled.value
     }
 

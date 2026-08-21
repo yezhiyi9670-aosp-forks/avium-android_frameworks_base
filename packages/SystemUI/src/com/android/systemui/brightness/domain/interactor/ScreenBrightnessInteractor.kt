@@ -74,7 +74,7 @@ constructor(
     val isAutoBrightnessEnabledFlow: StateFlow<Boolean> =
         screenBrightnessRepository.isAutoBrightnessEnabledFlow
 
-    fun toggleBrightnessMode() {
+    suspend fun toggleBrightnessMode() {
         screenBrightnessRepository.toggleBrightnessMode()
     }
 
