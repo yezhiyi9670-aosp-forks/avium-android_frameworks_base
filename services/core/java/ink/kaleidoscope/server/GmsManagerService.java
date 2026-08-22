@@ -24,11 +24,8 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ParceledListSlice;
 import android.content.pm.UserInfo;
 import android.database.ContentObserver;
 import android.net.Uri;
@@ -44,10 +41,7 @@ import com.android.server.SystemService;
 import java.lang.Boolean;
 import java.lang.IllegalArgumentException;
 import java.lang.Integer;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 
 public final class GmsManagerService extends SystemService {
 
@@ -77,53 +71,6 @@ public final class GmsManagerService extends SystemService {
     private Handler mHandler;
     private HashMap<Integer, SettingsObserver> mObservers;
     private boolean mInitialized;
-
-    public static boolean shouldHide(int userId, String packageName) {
-        if (packageName == null)
-            return false;
-
-        Boolean enabled = sCachedSettings.get(userId);
-        if (enabled == null)
-            return false;
-
-        return !enabled.booleanValue() &&
-                Arrays.stream(GMS_PACKAGES).anyMatch(packageName::equals);
-    }
-
-    public static ParceledListSlice<PackageInfo> recreatePackageList(
-                            int userId, ParceledListSlice<PackageInfo> list) {
-        Boolean enabled = sCachedSettings.get(userId);
-        if (enabled == null || enabled.booleanValue())
-            return list;
-
-        List<PackageInfo> oldList = list.getList();
-        ArrayList<PackageInfo> newList = new ArrayList<>();
-        for (PackageInfo info : oldList) {
-            if (info.packageName != null &&
-                    Arrays.stream(GMS_PACKAGES).anyMatch(info.packageName::equals))
-                continue;
-            newList.add(info);
-        }
-
-        return new ParceledListSlice<>(newList);
-    }
-
-    public static List<ApplicationInfo> recreateApplicationList(
-                            int userId, List<ApplicationInfo> list) {
-        Boolean enabled = sCachedSettings.get(userId);
-        if (enabled == null || enabled.booleanValue())
-            return list;
-
-        ArrayList<ApplicationInfo> newList = new ArrayList<>();
-        for (ApplicationInfo info : list) {
-            if (info.packageName != null &&
-                    Arrays.stream(GMS_PACKAGES).anyMatch(info.packageName::equals))
-                continue;
-            newList.add(info);
-        }
-
-        return newList;
-    }
 
     private void updateStateForUser(int userId) {
         boolean enabled = Settings.Secure.getIntForUser(mResolver, GMS_ENABLED, 0, userId) == 1;
