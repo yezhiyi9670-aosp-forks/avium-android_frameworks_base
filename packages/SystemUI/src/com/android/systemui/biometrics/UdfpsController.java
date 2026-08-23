@@ -154,6 +154,12 @@ public class UdfpsController implements DozeReceiver, Dumpable {
     private static final long MIN_UNCHANGED_INTERACTION_LOG_INTERVAL = 50;
 
     private final Context mContext;
+    // Safety timeout (ms) after which the UDFPS illumination is disabled if the fingerprint HAL
+    // has not reported an acquisition after a finger-down (e.g. when a mouse or another non-finger
+    // object presses the sensor and the HAL waits indefinitely for a finger). This prevents the
+    // display from staying in high-brightness mode for too long, which could cause screen burn-in.
+    // Configurable via config_udfpsIlluminationTimeout.
+    private final long mIlluminationTimeoutMillis;
     private final Execution mExecution;
     private final FingerprintManager mFingerprintManager;
     @NonNull private final LayoutInflater mInflater;
@@ -230,6 +236,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
     // mode.
     private boolean mIsAodInterruptActive;
     @Nullable private Runnable mCancelAodFingerUpAction;
+    @Nullable private Runnable mIlluminationTimeoutAction;
     private boolean mScreenOn;
     private Runnable mAodInterruptRunnable;
     private boolean mOnFingerDown;
@@ -381,6 +388,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
                     }
                     mAcquiredReceived = true;
                     final View view = mOverlay.getTouchOverlay();
+                    cancelIlluminationTimeout();
                     unconfigureDisplay(view);
                     tryAodSendFingerUp();
                 });
@@ -823,6 +831,9 @@ public class UdfpsController implements DozeReceiver, Dumpable {
 
         mUseMtkGhbmDimming = mContext.getResources().getBoolean(
             com.android.systemui.res.R.bool.config_udfpsMtkGhbmDimming);
+
+        mIlluminationTimeoutMillis = mContext.getResources().getInteger(
+                com.android.systemui.res.R.integer.config_udfpsIlluminationTimeout);
     }
 
     /**
@@ -1047,6 +1058,52 @@ public class UdfpsController implements DozeReceiver, Dumpable {
         }
     }
 
+    /**
+     * Disables the UDFPS illumination if the sensor was activated (e.g. by a mouse press) but the
+     * fingerprint HAL has not reported an acquisition within the configured illumination timeout.
+     * Some HALs wait indefinitely for a finger and never report anything, which would keep the
+     * display in high-brightness mode and risk screen burn-in.
+     *
+     * The current pointer is intentionally kept as being "on the sensor" so that the touch
+     * processor reports it as {@link InteractionEvent#UNCHANGED} instead of a new finger-down.
+     * Like a failed fingerprint match, the next scan happens only after the pointer is released
+     * and the sensor area is touched again.
+     */
+    @VisibleForTesting
+    void onIlluminationTimeout() {
+        mIlluminationTimeoutAction = null;
+        // Note: mAcquiredReceived is deliberately not checked here. It can carry over from a
+        // previous session (e.g. after a successful unlock) and would otherwise suppress this
+        // safety timeout until the next finger-up. The timer is already cancelled whenever an
+        // acquisition is received or the finger is lifted, so this handler only runs when the
+        // sensor genuinely stayed active without any progress.
+        if (mOverlay == null || !mOnFingerDown) {
+            return;
+        }
+        Log.w(TAG, "No acquisition received within timeout, disabling UDFPS illumination.");
+        mAcquiredReceived = true;
+        // Abandon the pending scan in the HAL. mActivePointerId is intentionally NOT reset here.
+        mFingerprintManager.onPointerUp(mOverlay.getRequestId(), mSensorProps.sensorId);
+        if (mUseMtkGhbmDimming) {
+            View hbmView = mOverlay.getHbmView();
+            if (hbmView != null) {
+                hbmView.setVisibility(View.GONE);
+            }
+        }
+        unconfigureDisplay(mOverlay.getTouchOverlay());
+    }
+
+    /**
+     * Cancels any scheduled illumination timeout without triggering the timeout action.
+     */
+    @VisibleForTesting
+    void cancelIlluminationTimeout() {
+        if (mIlluminationTimeoutAction != null) {
+            mIlluminationTimeoutAction.run();
+            mIlluminationTimeoutAction = null;
+        }
+    }
+
     private boolean isOptical() {
         return mSensorProps.sensorType == FingerprintSensorProperties.TYPE_UDFPS_OPTICAL;
     }
@@ -1124,6 +1181,13 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             mDeviceEntryFaceAuthInteractor.onUdfpsSensorTouched();
         }
         mOnFingerDown = true;
+
+        if (isOptical()) {
+            cancelIlluminationTimeout();
+            mIlluminationTimeoutAction = mFgExecutor.executeDelayed(
+                    this::onIlluminationTimeout, mIlluminationTimeoutMillis);
+        }
+
         mFingerprintManager.onPointerDown(requestId, mSensorProps.sensorId, pointerId, x, y,
                 minor, major, orientation, time, gestureStart, isAod);
 
@@ -1216,6 +1280,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             }
         }
 
+        cancelIlluminationTimeout();
         unconfigureDisplay(view);
         cancelAodSendFingerUpAction();
     }

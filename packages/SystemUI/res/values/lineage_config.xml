@@ -60,6 +60,14 @@
     <!-- Whether to enable MediaTek-specific optical dimming for UDFPS -->
     <bool name="config_udfpsMtkGhbmDimming">false</bool>
 
+    <!-- Turn the UDFPS illumination off and end the current acquisition if the
+         HAL has not reported an acquisition in the specified period of time after a finger-down
+         event.
+         This is helpful for devices with HALs that can wait for a finger for too long when a
+         non-finger object touches the sensor, potentially causing the display to stay in
+         active HBM mode for too long and to burn-in. -->
+    <integer name="config_udfpsIlluminationTimeout">3000</integer>
+
     <!-- Name of the UDFPS HBM DimLayer for the HWComposer -->
     <string name="config_udfpsHbmDimLayer" translatable="false">OnScreenFingerprintDimLayer</string>
 
