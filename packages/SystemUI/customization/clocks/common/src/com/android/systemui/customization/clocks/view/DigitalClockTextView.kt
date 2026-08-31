@@ -410,7 +410,7 @@ abstract class DigitalClockTextView(
                 interpolator = FIDGET_INTERPOLATOR,
                 onAnimationEnd = {
                     textAnimator.setTextStyle(
-                        TextAnimator.Style(fVar = fontVariations.lockscreen),
+                        TextAnimator.Style(fVar = fontVariations.getStandard(dozeFraction != 0f)),
                         TextAnimator.Animation(
                             animate = isAnimationEnabled,
                             duration = FIDGET_ANIMATION_DURATION,
