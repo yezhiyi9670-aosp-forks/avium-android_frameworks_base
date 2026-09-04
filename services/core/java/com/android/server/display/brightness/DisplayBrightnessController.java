@@ -418,7 +418,10 @@ public final class DisplayBrightnessController {
                 .constrain(brightnessValue, minBrightness, maxBrightness);
         boolean constrainedBrightnessChanged = false;
         boolean rawBrightnessChanged = false;
+        boolean persistBrightnessSetting = false;
         synchronized (mLock) {
+            final float previousMaxBrightness = mCurrentMaxBrightness;
+            final float previousScreenBrightness = mCurrentScreenBrightness;
             mCurrentMaxBrightness = maxBrightness;
             mCurrentMinBrightness = minBrightness;
             if (!BrightnessUtils.isValidBrightnessValue(brightnessValue)) {
@@ -433,12 +436,25 @@ public final class DisplayBrightnessController {
 
             mCurrentScreenBrightness = constrainedBrightness;
             mCurrentUnthrottledBrightness = brightnessValue;
+
+            // The brightness setting only needs to be persisted when the raw (unthrottled)
+            // value changes. However, when the allowed maximum grows (e.g. the high-brightness
+            // mode range becomes available while the unthrottled brightness is already at or
+            // above the old maximum), the value we persist could have been clamped to the old,
+            // narrower range. In that case re-persist even though the raw value is unchanged,
+            // so the stored brightness (and therefore the reported BrightnessInfo.brightness)
+            // tracks the brightness that is actually displayed instead of staying clamped to the
+            // previous maximum.
+            persistBrightnessSetting = rawBrightnessChanged
+                    || (constrainedBrightnessChanged && maxBrightness > previousMaxBrightness
+                    && constrainedBrightness > previousScreenBrightness
+                    && constrainedBrightness == brightnessValue);
         }
 
         if (constrainedBrightnessChanged) {
             notifyCurrentScreenBrightness();
         }
-        if (rawBrightnessChanged) {
+        if (persistBrightnessSetting) {
             setBrightnessInternal(brightnessValue, maxBrightness);
         }
     }

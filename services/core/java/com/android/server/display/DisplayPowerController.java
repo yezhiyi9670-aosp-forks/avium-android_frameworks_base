@@ -425,6 +425,13 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     private int mDisplayStatsId;
     private float mLastStatsBrightness = PowerManager.BRIGHTNESS_MIN;
 
+    // The maximum brightness value (from BrightnessRangeController, i.e. HBM-aware) that was used
+    // the last time the brightness setting was synced. Used to detect when the allowed range has
+    // grown (e.g. high-brightness-mode range became available) so that the stored brightness is
+    // re-synced with the brightness actually being applied.
+    // Accessed only on the DisplayControllerHandler thread, like other updatePowerState fields.
+    private float mBrightnessSettingRangeMax = -1f;
+
     // Whether or not to skip the initial brightness ramps into STATE_ON.
     private final boolean mSkipScreenOnBrightnessRamp;
 
@@ -1625,17 +1632,29 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         customAnimationRate = Math.max(customAnimationRate, clampedState.getCustomAnimationRate());
         mBrightnessReasonTemp.addModifier(clampedState.getBrightnessReason().getModifier());
 
+        final float brightnessRangeMax = mBrightnessRangeController.getCurrentBrightnessMax();
+        if (!updateScreenBrightnessSetting && brightnessRangeMax > mBrightnessSettingRangeMax
+                && mAutomaticBrightnessStrategy.isAutoBrightnessEnabled()
+                && BrightnessUtils.isValidBrightnessValue(unthrottledBrightnessState)) {
+            // The allowed maximum just grew (e.g. the high-brightness-mode range became available
+            // while auto-brightness is running). Even if the (unthrottled) target brightness did
+            // not change, the brightness setting may have been stored clamped to the previous,
+            // narrower maximum, so force a re-sync to keep the stored brightness / reported
+            // BrightnessInfo.brightness in line with the brightness actually being applied.
+            updateScreenBrightnessSetting = true;
+        }
         if (updateScreenBrightnessSetting) {
             // Tell the rest of the system about the new brightness in case we had to change it
             // for things like auto-brightness or high-brightness-mode. Note that we do this
             // only considering maxBrightness (ignoring brightness modifiers like low power or dim)
             // so that the slider accurately represents the full possible range,
             // even if they range changes what it means in absolute terms.
+            mBrightnessSettingRangeMax = brightnessRangeMax;
             mDisplayBrightnessController.updateScreenBrightnessSetting(
                     unthrottledBrightnessState,
                     Math.max(mBrightnessRangeController.getCurrentBrightnessMin(),
                             clampedState.getMinBrightness()),
-                    Math.min(mBrightnessRangeController.getCurrentBrightnessMax(),
+                    Math.min(brightnessRangeMax,
                             clampedState.getMaxBrightness()));
         }
 
