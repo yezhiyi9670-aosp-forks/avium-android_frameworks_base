@@ -425,6 +425,40 @@ class CustomTileTest : SysuiTestCase() {
     }
 
     @Test
+    fun testActiveTileListensAgainIfBindStillPending() {
+        `when`(tileServiceManager.isActiveTile).thenReturn(true)
+
+        val tile = CustomTile.create(customTileFactory, TILE_SPEC, mContext)
+        tile.initialize()
+        // Make sure we have an icon in the tile because we don't have a default icon
+        // This should not be overridden by the retrieved tile that has null icon.
+        tile.qsTile.icon = mock(Icon::class.java)
+        `when`(tile.qsTile.icon.loadDrawable(any(Context::class.java)))
+            .thenReturn(mock(Drawable::class.java))
+
+        // First listening round: makes the tile "ready".
+        tile.postStale()
+        testableLooper.processAllMessages()
+
+        // postStale will set it to not listening after it's done
+        verify(tileService).onStopListening()
+
+        clearInvocations(tileServiceManager, tileService)
+
+        // The earlier bind attempt never completed (e.g. it happened before the app could
+        // start after boot), so the tile is still waiting for its first successful bind.
+        `when`(tileServiceManager.hasPendingBind()).thenReturn(true)
+
+        // Opening Quick Settings again must retry binding so the tile can recover from the
+        // unavailable state instead of staying disabled until the app nudges it.
+        tile.setListening(Any(), true)
+        testableLooper.processAllMessages()
+
+        verify(tileServiceManager).setBindRequested(true)
+        verify(tileService).onStartListening()
+    }
+
+    @Test
     fun testAlwaysUseDefaultLabelIfNoLabelIsSet() {
         // Give it an icon to prevent issues
         serviceInfo.icon = R.drawable.android
