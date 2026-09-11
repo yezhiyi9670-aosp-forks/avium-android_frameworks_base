@@ -4309,6 +4309,13 @@ public class AudioService extends IAudioService.Stub
                 && (keyEventMode != AudioDeviceVolumeManager.ADJUST_MODE_END)) {
             mAudioHandler.removeMessages(MSG_UNMUTE_STREAM_ON_SINGLE_VOL_DEVICE);
 
+            // When raising the volume of a muted stream, restore the level that was set before
+            // muting instead of incrementing it by one step. If that level was the minimum,
+            // fall back to a regular step so that unmuting produces an audible volume.
+            final boolean restoreMutedVolume = (direction == AudioManager.ADJUST_RAISE)
+                    && streamState.mIsMuted
+                    && aliasIndex > streamState.getMinIndex();
+
             if (isMuteAdjust && !mFullVolumeDevices.contains(deviceType)) {
                 boolean state;
                 if (direction == AudioManager.ADJUST_TOGGLE_MUTE) {
@@ -4319,10 +4326,11 @@ public class AudioService extends IAudioService.Stub
                 muteAliasStreams(streamTypeAlias, state);
             } else if ((direction == AudioManager.ADJUST_RAISE)
                     && mSoundDoseHelper.raiseVolumeDisplaySafeMediaVolume(streamTypeAlias,
-                            aliasIndex + step, deviceType, flags)) {
+                            restoreMutedVolume ? aliasIndex : aliasIndex + step, deviceType,
+                            flags)) {
                 Log.e(TAG, "adjustStreamVolume() safe volume index = " + oldIndex);
             } else if (!isFullVolumeDevice(deviceType)
-                    && (streamState.adjustIndex(direction * step, deviceType,
+                    && (streamState.adjustIndex(restoreMutedVolume ? 0 : direction * step, deviceType,
                             caller, hasModifyAudioSettings)
                             || streamState.mIsMuted)) {
                 // Post message to set system volume (it in turn will post a
