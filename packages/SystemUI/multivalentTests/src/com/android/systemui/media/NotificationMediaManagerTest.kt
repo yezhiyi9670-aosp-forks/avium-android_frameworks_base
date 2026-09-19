@@ -29,6 +29,7 @@ import com.android.systemui.media.controls.domain.pipeline.MediaDataManager
 import com.android.systemui.statusbar.notification.collection.NotificationEntry
 import com.android.systemui.statusbar.notification.collection.mockNotifCollection
 import com.android.systemui.statusbar.notification.collection.notifPipeline
+import com.android.systemui.statusbar.notification.collection.notifcollection.NotifCollectionListener
 import com.android.systemui.statusbar.notification.collection.render.notificationVisibilityProvider
 import com.android.systemui.testKosmos
 import com.android.systemui.util.concurrency.FakeExecutor
@@ -37,6 +38,7 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.Mockito.atLeastOnce
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.kotlin.any
@@ -60,6 +62,7 @@ class NotificationMediaManagerTest : SysuiTestCase() {
     private val backgroundExecutor = FakeExecutor(FakeSystemClock())
 
     private var listenerCaptor = argumentCaptor<MediaDataManager.Listener>()
+    private var collectionListenerCaptor = argumentCaptor<NotifCollectionListener>()
 
     private lateinit var notificationMediaManager: NotificationMediaManager
 
@@ -81,6 +84,7 @@ class NotificationMediaManagerTest : SysuiTestCase() {
             MediaController(context, mediaSession.sessionToken)
 
         verify(mediaDataManager).addListener(listenerCaptor.capture())
+        verify(notifPipeline).addCollectionListener(collectionListenerCaptor.capture())
     }
 
     @Test
@@ -116,5 +120,47 @@ class NotificationMediaManagerTest : SysuiTestCase() {
 
         assertThat(notificationMediaManager.mediaMetadata).isNull()
         assertThat(notificationMediaManager.mMediaController).isNull()
+    }
+
+    @Test
+    fun onEntryAdded_mediaNotification_resolvesMediaState() {
+        whenever(notifPipeline.allNotifs).thenReturn(emptyList())
+        val entry = mock<NotificationEntry>()
+        whenever(entry.isMediaNotification).thenReturn(true)
+
+        collectionListenerCaptor.lastValue.onEntryAdded(entry)
+
+        verify(notifPipeline, atLeastOnce()).allNotifs
+    }
+
+    @Test
+    fun onEntryUpdated_mediaNotification_resolvesMediaState() {
+        whenever(notifPipeline.allNotifs).thenReturn(emptyList())
+        val entry = mock<NotificationEntry>()
+        whenever(entry.isMediaNotification).thenReturn(true)
+
+        collectionListenerCaptor.lastValue.onEntryUpdated(entry)
+
+        verify(notifPipeline, atLeastOnce()).allNotifs
+    }
+
+    @Test
+    fun onEntryAdded_nonMediaNotification_doesNotResolveMediaState() {
+        val entry = mock<NotificationEntry>()
+        whenever(entry.isMediaNotification).thenReturn(false)
+
+        collectionListenerCaptor.lastValue.onEntryAdded(entry)
+
+        verify(notifPipeline, never()).allNotifs
+    }
+
+    @Test
+    fun onEntryUpdated_nonMediaNotification_doesNotResolveMediaState() {
+        val entry = mock<NotificationEntry>()
+        whenever(entry.isMediaNotification).thenReturn(false)
+
+        collectionListenerCaptor.lastValue.onEntryUpdated(entry)
+
+        verify(notifPipeline, never()).allNotifs
     }
 }

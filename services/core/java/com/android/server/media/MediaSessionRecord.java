@@ -972,7 +972,20 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         for (ISessionControllerCallbackHolder holder : mControllerCallbackHolders) {
             try {
                 call.performOn(holder);
-            } catch (RemoteException | NoSuchElementException exception) {
+            } catch (RemoteException exception) {
+                // A RemoteException does not necessarily mean the callback's process has died. A
+                // binder transaction can fail transiently, for example when the receiver is
+                // temporarily out of binder buffer space (the native binder layer reports
+                // FAILED_TRANSACTION on a small parcel as a DeadObjectException). If the binder
+                // is still alive, keep the callback so that updates resume as soon as the
+                // transient condition clears; genuine process death is handled by the death
+                // recipient registered in registerCallback().
+                if (!holder.mCallback.asBinder().isBinderAlive()) {
+                    deadCallbackHolders.add(holder);
+                }
+                logCallbackException(
+                        "Exception while executing: " + operationName, holder, exception);
+            } catch (NoSuchElementException exception) {
                 deadCallbackHolders.add(holder);
                 logCallbackException(
                         "Exception while executing: " + operationName, holder, exception);
