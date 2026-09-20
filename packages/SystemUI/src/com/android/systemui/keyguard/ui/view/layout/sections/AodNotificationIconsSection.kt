@@ -30,7 +30,9 @@ import androidx.constraintlayout.widget.ConstraintSet.START
 import androidx.constraintlayout.widget.ConstraintSet.TOP
 import com.android.systemui.common.ui.ConfigurationState
 import com.android.systemui.customization.clocks.R as clocksR
+import com.android.systemui.keyguard.domain.interactor.KeyguardBlueprintInteractor
 import com.android.systemui.keyguard.shared.model.KeyguardSection
+import com.android.systemui.keyguard.ui.view.layout.blueprints.transitions.IntraBlueprintTransition
 import com.android.systemui.keyguard.ui.viewmodel.KeyguardRootViewModel
 import com.android.systemui.res.R
 import com.android.systemui.shade.ShadeDisplayAware
@@ -43,6 +45,7 @@ import com.android.systemui.statusbar.notification.promoted.PromotedNotification
 import com.android.systemui.statusbar.phone.NotificationIconContainer
 import com.android.systemui.statusbar.ui.SystemBarUtilsState
 import com.android.systemui.util.ui.value
+import dagger.Lazy
 import javax.inject.Inject
 import kotlinx.coroutines.DisposableHandle
 
@@ -57,11 +60,15 @@ constructor(
     @ShadeDisplayAware private val systemBarUtilsState: SystemBarUtilsState,
     private val rootViewModel: KeyguardRootViewModel,
     private val shadeModeInteractor: ShadeModeInteractor,
+    private val keyguardBlueprintInteractor: Lazy<KeyguardBlueprintInteractor>,
 ) : KeyguardSection() {
 
     private var nicBindingDisposable: DisposableHandle? = null
     private val nicId = R.id.aod_notification_icon_container
     private lateinit var nic: NotificationIconContainer
+
+    // Inset to keep the icons clear of a display cutout on the left edge.
+    private var safeInsetLeft = 0
 
     override fun addViews(constraintLayout: ConstraintLayout) {
         nic =
@@ -74,6 +81,26 @@ constructor(
                     0,
                 )
                 setVisibility(View.INVISIBLE)
+                setOnApplyWindowInsetsListener { _, windowInsets ->
+                    // A top-corner cutout also occupies horizontal space, but DisplayCutout only
+                    // exposes it through safeInsetTop, so derive the left inset from the top bound.
+                    val newSafeInsetLeft =
+                        windowInsets?.displayCutout?.let { cutout ->
+                            val top = cutout.boundingRectTop
+                            if (!top.isEmpty && top.left <= 0) {
+                                maxOf(cutout.safeInsetLeft, top.right)
+                            } else {
+                                cutout.safeInsetLeft
+                            }
+                        } ?: 0
+                    if (safeInsetLeft != newSafeInsetLeft) {
+                        safeInsetLeft = newSafeInsetLeft
+                        keyguardBlueprintInteractor
+                            .get()
+                            .refreshBlueprint(IntraBlueprintTransition.Type.DefaultTransition)
+                    }
+                    windowInsets
+                }
             }
 
         constraintLayout.addView(nic)
@@ -100,6 +127,10 @@ constructor(
         val height = context.resources.getDimensionPixelSize(R.dimen.notification_shelf_height)
         val isVisible = rootViewModel.isNotifIconContainerVisible.value
         val isFullWidthShade = shadeModeInteractor.isFullWidthShade.value
+        // The cutout is on the physical left, so keep the icons clear of whichever edge that is.
+        val isRtl = context.resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val marginStart = horizontalMargin + if (isRtl) 0 else safeInsetLeft
+        val marginEnd = horizontalMargin + if (isRtl) safeInsetLeft else 0
 
         constraintSet.apply {
             if (PromotedNotificationUi.isEnabled) {
@@ -114,9 +145,9 @@ constructor(
             if (PromotedNotificationUi.isEnabled && !isFullWidthShade) {
                 // Don't create a start constraint, so the icons can hopefully right-align.
             } else {
-                connect(nicId, START, PARENT_ID, START, horizontalMargin)
+                connect(nicId, START, PARENT_ID, START, marginStart)
             }
-            connect(nicId, END, PARENT_ID, END, horizontalMargin)
+            connect(nicId, END, PARENT_ID, END, marginEnd)
 
             constrainHeight(nicId, height)
         }
