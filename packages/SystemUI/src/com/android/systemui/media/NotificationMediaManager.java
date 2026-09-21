@@ -340,6 +340,11 @@ public class NotificationMediaManager implements Dumpable {
                 Log.v(TAG, "DEBUG_MEDIA: insert listener, found new controller: "
                         + mMediaController + ", receive metadata: " + mMediaMetadata);
             }
+        } else if (mMediaController != null) {
+            // The session is unchanged, but the cached metadata may be stale if a metadata
+            // callback was dropped (for example due to a transient binder failure). Re-read it
+            // directly from the live controller so consumers such as the keyguard slice recover.
+            mMediaMetadata = mMediaController.getMetadata();
         }
 
         if (mediaNotification != null
