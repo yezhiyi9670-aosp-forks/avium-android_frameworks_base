@@ -1810,6 +1810,16 @@ public class DreamService extends Service implements Window.Callback {
                     PackageManager.ComponentInfoFlags.of(PackageManager.GET_META_DATA));
         } catch (PackageManager.NameNotFoundException e) {
             if (DEBUG) Log.w(TAG, "cannot find component " + componentName.flattenToShortString());
+        } catch (RuntimeException e) {
+            // A transient binder failure (for example the binder buffer being temporarily
+            // exhausted) is surfaced by PackageManager as a RuntimeException wrapping a
+            // RemoteException. Don't kill the dream process just because its metadata could
+            // not be read; fall back to the defaults by returning null.
+            if (!(e.getCause() instanceof RemoteException)) {
+                throw e;
+            }
+            Log.w(TAG, "Failed to fetch service info for "
+                    + componentName.flattenToShortString() + "; continuing without metadata", e);
         }
         return null;
     }

@@ -972,7 +972,20 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         for (ISessionControllerCallbackHolder holder : mControllerCallbackHolders) {
             try {
                 call.performOn(holder);
-            } catch (RemoteException | NoSuchElementException exception) {
+            } catch (RemoteException exception) {
+                // A RemoteException does not necessarily mean the client's process died. A
+                // one-way transaction can fail with FAILED_TRANSACTION (reported here as
+                // DeadObjectException) when the target is temporarily out of binder buffer
+                // space, and an oversized payload throws TransactionTooLargeException. In both
+                // cases the client is still alive, so only evict holders whose binder is
+                // actually gone. Genuine deaths are also handled by the linkToDeath monitor
+                // installed in registerCallback().
+                if (isCallbackHolderDead(holder)) {
+                    deadCallbackHolders.add(holder);
+                }
+                logCallbackException(
+                        "Exception while executing: " + operationName, holder, exception);
+            } catch (NoSuchElementException exception) {
                 deadCallbackHolders.add(holder);
                 logCallbackException(
                         "Exception while executing: " + operationName, holder, exception);
@@ -980,6 +993,14 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         }
         synchronized (mLock) {
             mControllerCallbackHolders.removeAll(deadCallbackHolders);
+        }
+    }
+
+    private static boolean isCallbackHolderDead(ISessionControllerCallbackHolder holder) {
+        try {
+            return !holder.mCallback.asBinder().isBinderAlive();
+        } catch (RuntimeException e) {
+            return true;
         }
     }
 
