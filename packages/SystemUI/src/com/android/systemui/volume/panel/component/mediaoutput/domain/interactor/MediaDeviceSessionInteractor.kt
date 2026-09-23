@@ -48,7 +48,7 @@ constructor(
     /** [PlaybackState] changes for the [MediaDeviceSession]. */
     fun playbackState(session: MediaDeviceSession): Flow<PlaybackState?> {
         return stateChanges(session) {
-                emit(MediaControllerChangeModel.PlaybackStateChanged(it.playbackState))
+                emit(MediaControllerChangeModel.PlaybackStateChanged(it.playbackStateIfAlive))
             }
             .filterIsInstance(MediaControllerChangeModel.PlaybackStateChanged::class)
             .map { it.state }

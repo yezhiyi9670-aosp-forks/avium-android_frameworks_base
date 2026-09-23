@@ -161,7 +161,7 @@ constructor(
                 return null
             }
             val mediaController = mediaControllerFactory.create(token)
-            val metadata = mediaController.metadata
+            val metadata = mediaController.metadataIfAlive
             val notification: Notification = sbn.notification
 
             val appInfo =
@@ -245,7 +245,7 @@ constructor(
             }
 
             val playbackLocation = getPlaybackLocation(sbn, mediaController)
-            val isPlaying = mediaController.playbackState?.let { isPlayingState(it.state) }
+            val isPlaying = mediaController.playbackStateIfAlive?.let { isPlayingState(it.state) }
 
             val appUid = appInfo?.uid ?: Process.INVALID_UID
             return MediaDataLoaderResult(

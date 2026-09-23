@@ -1580,20 +1580,6 @@ static jboolean android_os_BinderProxy_transact(JNIEnv* env, jobject obj,
         return JNI_FALSE;
     }
 
-    if (err == FAILED_TRANSACTION && target->isBinderAlive()) {
-        // The target binder is still alive, so this is a transient low-level binder failure
-        // (most commonly the target temporarily running out of binder buffer space) rather
-        // than a dead object. Reporting DeadObjectException here makes callers across the
-        // framework treat a live process as dead and tear it down or kill it, so report a
-        // plain RemoteException instead.
-        ALOGE("!!! FAILED BINDER TRANSACTION !!!  (parcel size = %zu), target is still alive",
-                data->dataSize());
-        jniThrowException(env, "android/os/RemoteException",
-                "Transaction failed on small parcel; the target process is still alive, but the "
-                "transaction failed, possibly due to running out of binder buffer space");
-        return JNI_FALSE;
-    }
-
     signalExceptionForError(env, obj, err, true /*canThrowRemoteException*/, data->dataSize());
     return JNI_FALSE;
 }

@@ -308,7 +308,7 @@ class AviumMusicLockscreenController @Inject constructor(
         if (albumArtAnimator?.isStarted == false) {
             albumArtAnimator?.start()
         }
-        updatePlaybackState(mediaController?.playbackState)
+        updatePlaybackState(mediaController?.playbackStateIfAlive)
     }
 
     fun onHidden() {

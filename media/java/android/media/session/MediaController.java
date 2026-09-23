@@ -35,7 +35,6 @@ import android.media.session.MediaSession.QueueItem;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.DeadObjectException;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -143,7 +142,7 @@ public final class MediaController {
         try {
             return mSessionBinder.sendMediaButton(mContext.getPackageName(), keyEvent);
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, false);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -156,7 +155,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getPlaybackState();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -169,7 +168,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getMetadata();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -184,7 +183,7 @@ public final class MediaController {
             ParceledListSlice list = mSessionBinder.getQueue();
             return list == null ? null : list.getList();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -195,7 +194,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getQueueTitle();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -206,7 +205,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getExtras();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -228,7 +227,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getRatingType();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, 0);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -241,7 +240,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getFlags();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, 0L);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -251,7 +250,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getVolumeAttributes();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -265,7 +264,7 @@ public final class MediaController {
         try {
             return mSessionBinder.getLaunchPendingIntent();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -297,7 +296,7 @@ public final class MediaController {
             mSessionBinder.setVolumeTo(mContext.getPackageName(), mContext.getOpPackageName(),
                     value, flags);
         } catch (RemoteException ex) {
-            handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -322,7 +321,7 @@ public final class MediaController {
             mSessionBinder.adjustVolume(mContext.getPackageName(), mContext.getOpPackageName(),
                     direction, flags);
         } catch (RemoteException ex) {
-            handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -388,7 +387,7 @@ public final class MediaController {
         try {
             mSessionBinder.sendCommand(mContext.getPackageName(), command, args, cb);
         } catch (RemoteException ex) {
-            handleSessionFailure(ex, null);
+            throw ex.rethrowFromSystemServer();
         }
     }
 
@@ -402,7 +401,7 @@ public final class MediaController {
             try {
                 mPackageName = mSessionBinder.getPackageName();
             } catch (RemoteException ex) {
-                return handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
         return mPackageName;
@@ -423,7 +422,7 @@ public final class MediaController {
         try {
             mSessionInfo = mSessionBinder.getSessionInfo();
         } catch (RemoteException ex) {
-            return handleSessionFailure(ex, Bundle.EMPTY);
+            throw ex.rethrowFromSystemServer();
         }
 
         if (mSessionInfo == null) {
@@ -447,7 +446,7 @@ public final class MediaController {
             try {
                 mTag = mSessionBinder.getTag();
             } catch (RemoteException ex) {
-                return handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
         return mTag;
@@ -465,12 +464,67 @@ public final class MediaController {
     }
 
     /**
-     * A binder call can fail with a {@link DeadObjectException} even when the session's process
-     * is still alive, for example when a small transaction fails because the binder buffer is
-     * temporarily exhausted. In that case the session should be treated as temporarily
-     * unavailable instead of throwing a fatal {@code DeadSystemRuntimeException}.
+     * Like {@link #getPlaybackState()}, but returns {@code null} instead of throwing when the
+     * session is only temporarily unreachable because of a transient low-level binder failure
+     * (for example the target process running out of binder buffer space). In that case the
+     * session's process is still alive, so callers should treat it as temporarily unavailable
+     * rather than as a fatal system failure.
+     *
+     * @hide
      */
-    private boolean isTransientSessionFailure(@NonNull RemoteException ex) {
+    public @Nullable PlaybackState getPlaybackStateIfAlive() {
+        try {
+            return mSessionBinder.getPlaybackState();
+        } catch (RemoteException ex) {
+            if (isSessionBinderAlive()) {
+                Log.w(TAG, "Transient binder failure reading playback state", ex);
+                return null;
+            }
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Like {@link #getMetadata()}, but returns {@code null} instead of throwing when the session
+     * is only temporarily unreachable because of a transient low-level binder failure (for
+     * example the target process running out of binder buffer space).
+     *
+     * @hide
+     */
+    public @Nullable MediaMetadata getMetadataIfAlive() {
+        try {
+            return mSessionBinder.getMetadata();
+        } catch (RemoteException ex) {
+            if (isSessionBinderAlive()) {
+                Log.w(TAG, "Transient binder failure reading metadata", ex);
+                return null;
+            }
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Like {@link #getPackageName()}, but returns {@code null} instead of throwing when the
+     * session is only temporarily unreachable because of a transient low-level binder failure.
+     *
+     * @hide
+     */
+    public @Nullable String getPackageNameIfAlive() {
+        if (mPackageName == null) {
+            try {
+                mPackageName = mSessionBinder.getPackageName();
+            } catch (RemoteException ex) {
+                if (isSessionBinderAlive()) {
+                    Log.w(TAG, "Transient binder failure reading package name", ex);
+                    return null;
+                }
+                throw ex.rethrowFromSystemServer();
+            }
+        }
+        return mPackageName;
+    }
+
+    private boolean isSessionBinderAlive() {
         if (mSessionBinder == null) {
             return false;
         }
@@ -479,19 +533,6 @@ public final class MediaController {
         } catch (RuntimeException e) {
             return false;
         }
-    }
-
-    /**
-     * Called from a {@code catch (RemoteException)} block. If the failure is a transient binder
-     * failure while the session is still alive, logs a warning and returns {@code defaultValue};
-     * otherwise rethrows the exception as a system-server failure.
-     */
-    private <T> T handleSessionFailure(@NonNull RemoteException ex, @Nullable T defaultValue) {
-        if (isTransientSessionFailure(ex)) {
-            Log.w(TAG, "Ignoring transient binder failure from live session", ex);
-            return defaultValue;
-        }
-        throw ex.rethrowFromSystemServer();
     }
 
     private void addCallbackLocked(Callback cb, Handler handler) {
@@ -508,7 +549,7 @@ public final class MediaController {
                 mSessionBinder.registerCallback(mContext.getPackageName(), mCbStub);
                 mCbRegistered = true;
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
     }
@@ -527,7 +568,7 @@ public final class MediaController {
             try {
                 mSessionBinder.unregisterCallback(mCbStub);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
             mCbRegistered = false;
         }
@@ -664,7 +705,7 @@ public final class MediaController {
             try {
                 mSessionBinder.prepare(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -688,7 +729,7 @@ public final class MediaController {
             try {
                 mSessionBinder.prepareFromMediaId(mContext.getPackageName(), mediaId, extras);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -714,7 +755,7 @@ public final class MediaController {
             try {
                 mSessionBinder.prepareFromSearch(mContext.getPackageName(), query, extras);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -738,7 +779,7 @@ public final class MediaController {
             try {
                 mSessionBinder.prepareFromUri(mContext.getPackageName(), uri, extras);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -749,7 +790,7 @@ public final class MediaController {
             try {
                 mSessionBinder.play(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -768,7 +809,7 @@ public final class MediaController {
             try {
                 mSessionBinder.playFromMediaId(mContext.getPackageName(), mediaId, extras);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -790,7 +831,7 @@ public final class MediaController {
             try {
                 mSessionBinder.playFromSearch(mContext.getPackageName(), query, extras);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -809,7 +850,7 @@ public final class MediaController {
             try {
                 mSessionBinder.playFromUri(mContext.getPackageName(), uri, extras);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -821,7 +862,7 @@ public final class MediaController {
             try {
                 mSessionBinder.skipToQueueItem(mContext.getPackageName(), id);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -833,7 +874,7 @@ public final class MediaController {
             try {
                 mSessionBinder.pause(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -845,7 +886,7 @@ public final class MediaController {
             try {
                 mSessionBinder.stop(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -858,7 +899,7 @@ public final class MediaController {
             try {
                 mSessionBinder.seekTo(mContext.getPackageName(), pos);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -870,7 +911,7 @@ public final class MediaController {
             try {
                 mSessionBinder.fastForward(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -881,7 +922,7 @@ public final class MediaController {
             try {
                 mSessionBinder.next(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -893,7 +934,7 @@ public final class MediaController {
             try {
                 mSessionBinder.rewind(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -904,7 +945,7 @@ public final class MediaController {
             try {
                 mSessionBinder.previous(mContext.getPackageName());
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -919,7 +960,7 @@ public final class MediaController {
             try {
                 mSessionBinder.rate(mContext.getPackageName(), rating);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -937,7 +978,7 @@ public final class MediaController {
             try {
                 mSessionBinder.setPlaybackSpeed(mContext.getPackageName(), speed);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
 
@@ -972,7 +1013,7 @@ public final class MediaController {
             try {
                 mSessionBinder.sendCustomAction(mContext.getPackageName(), action, args);
             } catch (RemoteException ex) {
-                handleSessionFailure(ex, null);
+                throw ex.rethrowFromSystemServer();
             }
         }
     }

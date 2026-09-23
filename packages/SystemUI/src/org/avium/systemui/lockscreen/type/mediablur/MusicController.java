@@ -68,7 +68,7 @@ public class MusicController {
     }
 
     private void updateMetadata() {
-        MediaMetadata metadata = mMediaController.getMetadata();
+        MediaMetadata metadata = mMediaController.getMetadataIfAlive();
         if (metadata != null) {
             String title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE);
             String artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
@@ -78,7 +78,7 @@ public class MusicController {
     }
 
     private void updatePlaybackState() {
-        PlaybackState state = mMediaController.getPlaybackState();
+        PlaybackState state = mMediaController.getPlaybackStateIfAlive();
         if (state != null) {
             boolean isPlaying = state.getState() == PlaybackState.STATE_PLAYING;
             mListener.onPlaybackStateChanged(isPlaying);
@@ -91,8 +91,8 @@ public class MusicController {
     }
 
     private void updateProgress() {
-        PlaybackState state = mMediaController.getPlaybackState();
-        MediaMetadata metadata = mMediaController.getMetadata();
+        PlaybackState state = mMediaController.getPlaybackStateIfAlive();
+        MediaMetadata metadata = mMediaController.getMetadataIfAlive();
         if (state != null && metadata != null) {
             long currentPosition = state.getPosition();
             long duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
@@ -102,7 +102,7 @@ public class MusicController {
     }
 
     public void playPause() {
-        PlaybackState state = mMediaController.getPlaybackState();
+        PlaybackState state = mMediaController.getPlaybackStateIfAlive();
         if (state != null) {
             if (state.getState() == PlaybackState.STATE_PLAYING) {
                 mMediaController.getTransportControls().pause();

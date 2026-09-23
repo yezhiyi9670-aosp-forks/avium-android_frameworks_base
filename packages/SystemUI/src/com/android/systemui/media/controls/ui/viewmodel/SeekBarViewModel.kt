@@ -265,8 +265,8 @@ constructor(
     @WorkerThread
     fun updateController(mediaController: MediaController?) {
         controller = mediaController
-        playbackState = controller?.playbackState
-        val (enabled, duration) = getEnabledStateAndDuration(controller?.metadata)
+        playbackState = controller?.playbackStateIfAlive
+        val (enabled, duration) = getEnabledStateAndDuration(controller?.metadataIfAlive)
         val seekAvailable = ((playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO) != 0L
         val position = playbackState?.position?.toInt()
         val playing =

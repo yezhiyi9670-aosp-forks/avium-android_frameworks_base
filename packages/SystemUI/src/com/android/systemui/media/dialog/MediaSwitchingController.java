@@ -267,8 +267,8 @@ public class MediaSwitchingController
             mMediaController = getMediaController();
             if (mMediaController != null) {
                 mMediaController.unregisterCallback(mCb);
-                if (mMediaController.getPlaybackState() != null) {
-                    mCurrentState = mMediaController.getPlaybackState().getState();
+                if (mMediaController.getPlaybackStateIfAlive() != null) {
+                    mCurrentState = mMediaController.getPlaybackStateIfAlive().getState();
                 }
                 mMediaController.registerCallback(mCb);
             }
@@ -350,7 +350,7 @@ public class MediaSwitchingController
             for (MediaController controller :
                     mMediaSessionManager.getActiveSessionsForUser(
                             null, mUserTracker.getUserHandle())) {
-                if (TextUtils.equals(controller.getPackageName(), mPackageName)) {
+                if (TextUtils.equals(controller.getPackageNameIfAlive(), mPackageName)) {
                     return controller;
                 }
             }
@@ -501,7 +501,7 @@ public class MediaSwitchingController
 
     CharSequence getHeaderTitle() {
         if (mMediaController != null) {
-            final MediaMetadata metadata = mMediaController.getMetadata();
+            final MediaMetadata metadata = mMediaController.getMetadataIfAlive();
             if (metadata != null) {
                 return metadata.getDescription().getTitle();
             }
@@ -513,7 +513,7 @@ public class MediaSwitchingController
         if (mMediaController == null) {
             return null;
         }
-        final MediaMetadata metadata = mMediaController.getMetadata();
+        final MediaMetadata metadata = mMediaController.getMetadataIfAlive();
         if (metadata == null) {
             return null;
         }
@@ -524,7 +524,7 @@ public class MediaSwitchingController
         if (mMediaController == null) {
             return null;
         }
-        final MediaMetadata metadata = mMediaController.getMetadata();
+        final MediaMetadata metadata = mMediaController.getMetadataIfAlive();
         if (metadata != null) {
             final Bitmap bitmap = metadata.getDescription().getIconBitmap();
             if (bitmap != null) {
@@ -1010,7 +1010,7 @@ public class MediaSwitchingController
             return false;
         }
 
-        PlaybackState state = mMediaController.getPlaybackState();
+        PlaybackState state = mMediaController.getPlaybackStateIfAlive();
         if (state == null) {
             return false;
         }

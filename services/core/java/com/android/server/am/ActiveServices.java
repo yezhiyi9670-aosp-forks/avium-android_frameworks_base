@@ -6309,8 +6309,16 @@ public final class ActiveServices {
                 r.postNotification(false);
                 created = true;
             } catch (DeadObjectException e) {
-                Slog.w(TAG, "Application dead when creating service " + r);
-                mAm.appDiedLocked(app, "Died when creating service");
+                // A one-way binder transaction can fail with FAILED_TRANSACTION (reported here as
+                // DeadObjectException) simply because the target is temporarily out of binder
+                // buffer space. Killing the process in that case would take down a live app that
+                // is merely backed up, so only treat it as dead when its binder is actually gone.
+                if (!isAppBinderAlive(thread)) {
+                    Slog.w(TAG, "Application dead when creating service " + r);
+                    mAm.appDiedLocked(app, "Died when creating service");
+                } else {
+                    Slog.w(TAG, "Transient binder failure creating service " + r, e);
+                }
                 throw e;
             } finally {
                 if (!created) {
@@ -6370,6 +6378,17 @@ public final class ActiveServices {
                         "Applying delayed stop (from start): " + r);
                 stopServiceLocked(r, enqueueOomAdj);
             }
+        }
+    }
+
+    private static boolean isAppBinderAlive(IApplicationThread thread) {
+        if (thread == null) {
+            return false;
+        }
+        try {
+            return thread.asBinder().isBinderAlive();
+        } catch (RuntimeException e) {
+            return false;
         }
     }
 

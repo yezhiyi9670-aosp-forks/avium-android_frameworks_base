@@ -57,7 +57,7 @@ fun createActionsFromState(
     packageName: String,
     controller: MediaController,
 ): MediaButton? {
-    val state = controller.playbackState ?: return null
+    val state = controller.playbackStateIfAlive ?: return null
     // First, check for standard actions
     val playOrPause =
         if (isConnectingState(state.state)) {

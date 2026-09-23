@@ -260,8 +260,8 @@ constructor(
         background: Icon?,
     ): MediaDataModel {
         return withContext(backgroundDispatcher) {
-            val metadata = controller?.metadata
-            val currentPlaybackState = controller?.playbackState
+            val metadata = controller?.metadataIfAlive
+            val currentPlaybackState = controller?.playbackStateIfAlive
 
             val duration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
             val position = currentPlaybackState?.position ?: 0L
@@ -427,7 +427,7 @@ constructor(
                                 ?.let { latestModel ->
                                     updateMediaModelInStateLocked(latestModel) { model ->
                                         val canBeScrubbed =
-                                            controller.playbackState?.state !=
+                                            controller.playbackStateIfAlive?.state !=
                                                 PlaybackState.STATE_NONE && duration > 0L
                                         model.copy(
                                             canBeScrubbed = canBeScrubbed,
@@ -447,7 +447,7 @@ constructor(
         mediaCallbacks[dataModel.instanceId] = callback
 
         // Initial polling setup.
-        controller.playbackState?.let {
+        controller.playbackStateIfAlive?.let {
             updatePollingState(dataModel.instanceId, it, requireUpdate = false)
         }
     }
@@ -468,7 +468,7 @@ constructor(
                     applicationScope.launch(backgroundDispatcher) {
                         while (isActive) {
                             val currentController = activeControllers[instanceId]
-                            val latestPlaybackState = currentController?.playbackState
+                            val latestPlaybackState = currentController?.playbackStateIfAlive
                             checkPlaybackPosition(instanceId, latestPlaybackState)
                             delay(POSITION_UPDATE_INTERVAL_MILLIS)
                         }
@@ -478,7 +478,7 @@ constructor(
         } else if (requireUpdate) {
             positionPollers[instanceId]?.cancel()
             positionPollers.remove(instanceId)
-            checkPlaybackPosition(instanceId, controller.playbackState)
+            checkPlaybackPosition(instanceId, controller.playbackStateIfAlive)
         }
     }
 

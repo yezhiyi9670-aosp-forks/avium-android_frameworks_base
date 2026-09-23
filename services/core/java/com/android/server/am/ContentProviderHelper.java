@@ -973,6 +973,14 @@ public class ContentProviderHelper {
                     return;
                 }
 
+                if (proc.getThread().asBinder().isBinderAlive()) {
+                    // The provider connection looks dead, but the process itself is still alive,
+                    // so this is not a real process death and we must not tear the app down.
+                    Slog.w(TAG, "unstableProviderDied: provider for " + proc.processName
+                            + " (pid " + proc.getPid() + ") died but its process is still alive");
+                    return;
+                }
+
                 // As far as we're concerned, this is just like receiving a
                 // death notification...  just a bit prematurely.
                 mService.reportUidInfoMessageLocked(TAG, "Process " + proc.processName

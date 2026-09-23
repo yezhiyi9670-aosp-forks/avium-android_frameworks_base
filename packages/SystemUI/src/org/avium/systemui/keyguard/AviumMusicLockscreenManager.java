@@ -86,7 +86,7 @@ public class AviumMusicLockscreenManager {
             @Override
             public void onPlayPauseToggle() {
                 if (mMediaController == null) return;
-                PlaybackState state = mMediaController.getPlaybackState();
+                PlaybackState state = mMediaController.getPlaybackStateIfAlive();
                 if (state != null && state.getState() == PlaybackState.STATE_PLAYING) {
                     mMediaController.getTransportControls().pause();
                 } else {
@@ -152,9 +152,9 @@ public class AviumMusicLockscreenManager {
         checkAviumSystemProperty();
 
         PlaybackState playbackState = (mMediaController != null)
-                ? mMediaController.getPlaybackState() : null;
+                ? mMediaController.getPlaybackStateIfAlive() : null;
         MediaMetadata metadata = (mMediaController != null)
-                ? mMediaController.getMetadata() : null;
+                ? mMediaController.getMetadataIfAlive() : null;
         boolean isPlaying = playbackState != null
                 && playbackState.getState() == PlaybackState.STATE_PLAYING;
 

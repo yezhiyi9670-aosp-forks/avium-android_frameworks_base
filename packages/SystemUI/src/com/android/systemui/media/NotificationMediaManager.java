@@ -335,7 +335,7 @@ public class NotificationMediaManager implements Dumpable {
             clearCurrentMediaNotificationSession();
             mMediaController = controller;
             mMediaController.registerCallback(mMediaListener, mHandler);
-            mMediaMetadata = mMediaController.getMetadata();
+            mMediaMetadata = mMediaController.getMetadataIfAlive();
             if (DEBUG_MEDIA) {
                 Log.v(TAG, "DEBUG_MEDIA: insert listener, found new controller: "
                         + mMediaController + ", receive metadata: " + mMediaMetadata);
@@ -382,7 +382,7 @@ public class NotificationMediaManager implements Dumpable {
         pw.print("    mMediaController=");
         pw.print(mMediaController);
         if (mMediaController != null) {
-            pw.print(" state=" + mMediaController.getPlaybackState());
+            pw.print(" state=" + mMediaController.getPlaybackStateIfAlive());
         }
         pw.println();
         pw.print("    mMediaMetadata=");
@@ -410,7 +410,7 @@ public class NotificationMediaManager implements Dumpable {
 
     private int getMediaControllerPlaybackState(MediaController controller) {
         if (controller != null) {
-            final PlaybackState playbackState = controller.getPlaybackState();
+            final PlaybackState playbackState = controller.getPlaybackStateIfAlive();
             if (playbackState != null) {
                 return playbackState.getState();
             }
@@ -423,7 +423,7 @@ public class NotificationMediaManager implements Dumpable {
         if (mMediaController != null) {
             if (DEBUG_MEDIA) {
                 Log.v(TAG, "DEBUG_MEDIA: Disconnecting from old controller: "
-                        + mMediaController.getPackageName());
+                        + mMediaController.getPackageNameIfAlive());
             }
             mMediaController.unregisterCallback(mMediaListener);
         }

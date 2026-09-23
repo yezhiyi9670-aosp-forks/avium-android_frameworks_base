@@ -1536,7 +1536,7 @@ public class MediaControlPanel {
             return false;
         }
 
-        PlaybackState state = controller.getPlaybackState();
+        PlaybackState state = controller.getPlaybackStateIfAlive();
         if (state == null) {
             return false;
         }

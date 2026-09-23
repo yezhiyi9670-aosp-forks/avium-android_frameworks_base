@@ -213,7 +213,7 @@ constructor(
             // Let's register the cancellations, but not dispatch events now.
             // Timeouts didn't happen yet and reentrant events are troublesome.
             processState(
-                mediaController?.playbackState,
+                mediaController?.playbackStateIfAlive,
                 dispatchEvents = false,
                 currentResumption = data.resumption,
             )

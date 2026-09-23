@@ -163,8 +163,8 @@ constructor(
         if (currentController == null) {
             return newController
         }
-        val isNewControllerActive = newController.playbackState?.isActive == true
-        val isCurrentControllerActive = currentController.playbackState?.isActive == true
+        val isNewControllerActive = newController.playbackStateIfAlive?.isActive == true
+        val isCurrentControllerActive = currentController.playbackStateIfAlive?.isActive == true
         if (isNewControllerActive && !isCurrentControllerActive) {
             return newController
         }
