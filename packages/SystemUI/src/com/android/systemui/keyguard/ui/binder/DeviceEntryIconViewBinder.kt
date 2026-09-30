@@ -23,7 +23,6 @@ import android.util.Log
 import android.util.StateSet
 import android.view.HapticFeedbackConstants
 import android.view.View
-import android.widget.ImageView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.isInvisible
@@ -226,12 +225,6 @@ object DeviceEntryIconViewBinder {
                             }
                             fgIconView.imageTintList =
                                 viewModel.tint?.let { ColorStateList.valueOf(it) }
-                            fgIconView.scaleType =
-                                if (viewModel.type == DeviceEntryIconView.IconType.FINGERPRINT) {
-                                    ImageView.ScaleType.CENTER_CROP
-                                } else {
-                                    ImageView.ScaleType.FIT_CENTER
-                                }
                             fgIconView.setPadding(
                                 viewModel.padding,
                                 viewModel.padding,
