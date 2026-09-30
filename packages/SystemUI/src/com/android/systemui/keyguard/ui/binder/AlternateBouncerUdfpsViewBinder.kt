@@ -65,7 +65,7 @@ object AlternateBouncerUdfpsViewBinder {
                         view.getIconState(fgViewModel.type, fgViewModel.useAodVariant),
                         /* merge */ false,
                     )
-                    fgIconView.imageTintList = ColorStateList.valueOf(fgViewModel.tint)
+                    fgIconView.imageTintList = fgViewModel.tint?.let { ColorStateList.valueOf(it) }
                     fgIconView.setPadding(
                         fgViewModel.padding,
                         fgViewModel.padding,
@@ -81,7 +81,7 @@ object AlternateBouncerUdfpsViewBinder {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch("$TAG#viewModel.bgColor") {
                     viewModel.bgColor.collect { color ->
-                        bgView.imageTintList = ColorStateList.valueOf(color)
+                        bgView.imageTintList = null
                     }
                 }
                 launch("$TAG#viewModel.bgAlpha") {

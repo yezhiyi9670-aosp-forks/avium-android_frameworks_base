@@ -98,12 +98,10 @@ constructor(
             )
         }
 
-    private val fgIconColor: Flow<Int> =
+    private val fgIconColor: Flow<Int?> =
         configurationInteractor.onAnyConfigurationChange
-            .map { Utils.getColorAttrDefaultColor(context, android.R.attr.textColorPrimary) }
-            .onStart {
-                emit(Utils.getColorAttrDefaultColor(context, android.R.attr.textColorPrimary))
-            }
+            .map { null }
+            .onStart { emit(null) }
     private val fgIconPadding: Flow<Int> = udfpsOverlayInteractor.iconPadding
     val fgViewModel: Flow<DeviceEntryForegroundViewModel.ForegroundIconViewModel> =
         combine(fgIconColor, fgIconPadding) { color, padding ->

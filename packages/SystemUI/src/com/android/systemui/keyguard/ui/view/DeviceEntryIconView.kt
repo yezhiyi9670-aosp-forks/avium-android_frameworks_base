@@ -127,7 +127,7 @@ constructor(
         // FINGERPRINT
         animatedIconDrawable.addState(
             getIconState(IconType.FINGERPRINT, false),
-            context.getDrawable(R.drawable.ic_fingerprint)!!,
+            context.getDrawable(R.drawable.icon_fp)!!,
             R.id.locked_fp,
         )
 
@@ -145,12 +145,9 @@ constructor(
             R.id.unlocked_aod,
         )
         // FINGERPRINT
-        LottieCompositionFactory.fromRawRes(mContext, R.raw.udfps_aod_fp).addListener { result ->
-            aodFpDrawable.setComposition(result)
-        }
         animatedIconDrawable.addState(
             getIconState(IconType.FINGERPRINT, true),
-            aodFpDrawable,
+            context.getDrawable(R.drawable.icon_fp)!!,
             R.id.udfps_aod_fp,
         )
 
@@ -164,6 +161,7 @@ constructor(
     }
 
     private fun setupIconTransitions() {
+        /*
         // LockscreenFp <=> LockscreenUnlocked
         animatedIconDrawable.addTransition(
             R.id.locked_fp,
@@ -176,7 +174,7 @@ constructor(
             R.id.locked_fp,
             context.getDrawable(R.drawable.unlock_to_fp) as AnimatedVectorDrawable,
             /* reversible */ false,
-        )
+        )*/
 
         // LockscreenLocked <=> AodLocked
         animatedIconDrawable.addTransition(
@@ -221,12 +219,13 @@ constructor(
         )
 
         // LockscreenFingerprint => LockscreenLocked
+        /*
         animatedIconDrawable.addTransition(
             R.id.locked_fp,
             R.id.locked,
             context.getDrawable(R.drawable.fp_to_locked) as AnimatedVectorDrawable,
             /* reversible */ false,
-        )
+        )*/
 
         // LockscreenUnlocked <=> AodLocked
         animatedIconDrawable.addTransition(
