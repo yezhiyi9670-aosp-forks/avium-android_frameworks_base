@@ -331,6 +331,30 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                 && Flags.concurrentInputMethods();
     }
 
+    /** Opt-in sharing for clone/private profiles; other users retain their own IME. */
+    @UserIdInt
+    @VisibleForTesting
+    int resolveProfileImeUserId(@UserIdInt int userId) {
+        final var info = mUserManagerInternal.getUserInfo(userId);
+        if (info == null || (!info.isCloneProfile() && !info.isPrivateProfile())) return userId;
+        final int parentId = mUserManagerInternal.getProfileParentId(userId);
+        if (parentId == userId || parentId != mActivityManagerInternal.getCurrentUserId()
+                || !mUserManagerInternal.isUserUnlockingOrUnlocked(userId)
+                || !mUserManagerInternal.isUserUnlockingOrUnlocked(parentId)) return userId;
+        return isParentImeSharingEnabled(userId) ? parentId : userId;
+    }
+
+    @VisibleForTesting
+    boolean isParentImeSharingEnabled(@UserIdInt int userId) {
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            return Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                    "avium_use_parent_ime", 0, userId) == 1;
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
     /**
      * Figures out the target IME user ID for a given {@link Binder} IPC.
      *
@@ -341,7 +365,8 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
     @UserIdInt
     @BinderThread
     private int resolveImeUserIdLocked(@UserIdInt int callingProcessUserId) {
-        return mConcurrentMultiUserModeEnabled ? callingProcessUserId : mCurrentImeUserId;
+        return mConcurrentMultiUserModeEnabled
+                ? resolveProfileImeUserId(callingProcessUserId) : mCurrentImeUserId;
     }
 
     /**
@@ -2567,7 +2592,8 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                 // TODO(b/305849394): Figure out what we should do for single user IME mode.
                 final boolean shouldClearClientSession =
                         !mConcurrentMultiUserModeEnabled
-                                || UserHandle.getUserId(c.mUid) == userId;
+                                || (c.mCurSession != null && c.mCurSession.mUserId == userId)
+                                || resolveProfileImeUserId(UserHandle.getUserId(c.mUid)) == userId;
                 if (shouldClearClientSession) {
                     clearClientSessionLocked(c);
                     clearClientSessionForAccessibilityLocked(c);
@@ -3608,7 +3634,7 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
                 cs.mClient.onStartInputResult(res, startInputSeq);
                 // For first-time client bind, MSG_BIND should arrive after MSG_START_INPUT_RESULT.
                 if (res.result == InputBindResult.ResultCode.SUCCESS_WAITING_IME_SESSION) {
-                    requestClientSessionLocked(cs, userId);
+                    requestClientSessionLocked(cs, resolveProfileImeUserId(userId));
                     requestClientSessionForAccessibilityLocked(cs);
                 }
             } else {
@@ -3660,6 +3686,9 @@ public final class InputMethodManagerService implements IInputMethodManagerImpl.
             Slog.w(TAG, "User #" + userId + " is not running.");
             return InputBindResult.INVALID_USER;
         }
+        // Authenticate the requested user above before choosing an opted-in parent IME.
+        // The client's UID and package validation remain tied to the original application.
+        userId = resolveProfileImeUserId(userId);
         final var userData = getUserData(userId);
         try {
             Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER,

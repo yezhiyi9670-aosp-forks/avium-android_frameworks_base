@@ -96,15 +96,9 @@ constructor(
             .distinctUntilChanged()
 
     private val padding: Flow<Int> =
-        deviceEntryUdfpsInteractor.isUdfpsSupported.flatMapLatest { udfpsSupported ->
-            if (udfpsSupported) {
-                udfpsOverlayInteractor.iconPadding.debounce(udfpsPaddingDebounceDuration.toLong())
-            } else {
-                configurationInteractor.scaleForResolution.map { scale ->
-                    (context.resources.getDimensionPixelSize(R.dimen.lock_icon_padding) * scale)
-                        .roundToInt()
-                }
-            }
+        configurationInteractor.scaleForResolution.map { scale ->
+            (context.resources.getDimensionPixelSize(R.dimen.lock_icon_padding) * scale)
+                .roundToInt()
         }
 
     val viewModel: Flow<ForegroundIconViewModel> =
@@ -117,7 +111,9 @@ constructor(
                 type = iconType,
                 useAodVariant = useAodVariant,
                 tint = color,
-                padding = padding,
+                // Only the custom fingerprint artwork should fill the sensor-sized view.
+                // After reboot (or biometric lockout), keep the lock icon at its normal size.
+                padding = if (iconType == DeviceEntryIconView.IconType.FINGERPRINT) 0 else padding,
             )
         }
 

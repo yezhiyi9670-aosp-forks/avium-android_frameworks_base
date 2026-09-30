@@ -36,6 +36,17 @@ public class BubbleExt {
     }
 
     public void onInit() {
+        IntentFilter profiles = new IntentFilter(Intent.ACTION_PROFILE_UNAVAILABLE);
+        profiles.addAction(Intent.ACTION_PROFILE_INACCESSIBLE);
+        profiles.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
+        mContext.registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                UserHandle user = intent.getParcelableExtra(Intent.EXTRA_USER, UserHandle.class);
+                if (user != null) mController.onAppBubbleProfileUnavailable(user);
+            }
+        }, profiles, Context.RECEIVER_EXPORTED);
+
         IntentFilter filter = new IntentFilter(ACTION_LAUNCH_BUBBLE);
         mContext.registerReceiver(new BroadcastReceiver() {
             @Override
@@ -43,9 +54,12 @@ public class BubbleExt {
                 String packageName = intent.getStringExtra("package_name");
                 if (packageName != null) {
                     Log.d(TAG, "Requesting bubble for: " + packageName);
-                    mController.showOrUpdateAppBubble(packageName);
+                    mController.showOrUpdateAppBubble(packageName, UserHandle.of(
+                            intent.getIntExtra(Intent.EXTRA_USER_HANDLE,
+                                    ActivityManager.getCurrentUser())));
                 }
             }
-        }, filter, Context.RECEIVER_EXPORTED);
+        }, filter, "com.android.systemui.permission.LAUNCH_BUBBLE", null,
+                Context.RECEIVER_EXPORTED);
     }
 }

@@ -135,6 +135,79 @@ public class ActivityStartInterceptorTest {
     private SparseArray<ActivityInterceptorCallback> mActivityInterceptorCallbacks =
             new SparseArray<>();
 
+    @Test
+    public void systemLaunchFlows_requireTrustedResolvedDestination() {
+        final ActivityInfo target = new ActivityInfo();
+        target.applicationInfo = new ApplicationInfo();
+        target.applicationInfo.flags = ApplicationInfo.FLAG_SYSTEM;
+        for (String pkg : new String[] {"com.android.settings", "com.android.systemui",
+                "com.android.documentsui", "com.android.packageinstaller",
+                "com.android.providers.media.module"}) {
+            target.packageName = pkg;
+            assertTrue(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
+            assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", false));
+        }
+        target.packageName = "controller";
+        assertTrue(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", false));
+        target.applicationInfo.flags = 0;
+        assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
+        target.packageName = "com.android.settings";
+        assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
+        target.applicationInfo.flags = ApplicationInfo.FLAG_SYSTEM;
+        target.packageName = "com.android.browser";
+        assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
+        target.packageName = "com.example.app";
+        assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
+        assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(null, "controller", true));
+    }
+
+    @Test
+    public void appLaunchApproval_isBoundToCallerTargetAndIntentAndConsumedOnce() {
+        final int source = 10123;
+        final int target = 110456;
+        final Intent intent = new Intent(Intent.ACTION_VIEW,
+                android.net.Uri.parse("https://example.com/approved"))
+                .setComponent(new android.content.ComponentName("target", "target.Main"));
+        final android.os.IBinder token = new android.os.Binder();
+        final ActivityStartInterceptor.LaunchApproval approval =
+                new ActivityStartInterceptor.LaunchApproval(source, target, intent);
+        final android.os.Bundle capability = new android.os.Bundle();
+        capability.putBinder("token", token);
+        ActivityStartInterceptor.sLaunchApprovals.put(token, approval);
+        mInterceptor.mCallingUid = source;
+        mInterceptor.mAInfo = new ActivityInfo();
+        mInterceptor.mAInfo.applicationInfo = new android.content.pm.ApplicationInfo();
+        mInterceptor.mAInfo.applicationInfo.uid = target;
+        try {
+            mInterceptor.mIntent = new Intent(intent).putExtra(
+                    ActivityStartInterceptor.APPROVAL_TOKEN, capability);
+            assertFalse(mInterceptor.consumeLaunchApproval()); // The dialog has not allowed it.
+            approval.allowed = true;
+            mInterceptor.mCallingUid = source + 1;
+            mInterceptor.mIntent = new Intent(intent).putExtra(
+                    ActivityStartInterceptor.APPROVAL_TOKEN, capability);
+            assertFalse(mInterceptor.consumeLaunchApproval());
+            mInterceptor.mCallingUid = source;
+            mInterceptor.mAInfo.applicationInfo.uid = target + 1;
+            mInterceptor.mIntent = new Intent(intent).putExtra(
+                    ActivityStartInterceptor.APPROVAL_TOKEN, capability);
+            assertFalse(mInterceptor.consumeLaunchApproval());
+            mInterceptor.mAInfo.applicationInfo.uid = target;
+            mInterceptor.mIntent = new Intent(intent).setData(android.net.Uri.parse(
+                    "https://example.com/different")).putExtra(
+                    ActivityStartInterceptor.APPROVAL_TOKEN, capability);
+            assertFalse(mInterceptor.consumeLaunchApproval());
+            mInterceptor.mIntent = new Intent(intent).putExtra(
+                    ActivityStartInterceptor.APPROVAL_TOKEN, capability);
+            assertTrue(mInterceptor.consumeLaunchApproval());
+            mInterceptor.mIntent = new Intent(intent).putExtra(
+                    ActivityStartInterceptor.APPROVAL_TOKEN, capability);
+            assertFalse(mInterceptor.consumeLaunchApproval());
+        } finally {
+            ActivityStartInterceptor.sLaunchApprovals.remove(token);
+        }
+    }
+
     @Rule public final SetFlagsRule mSetFlagsRule = new SetFlagsRule();
 
     @Before

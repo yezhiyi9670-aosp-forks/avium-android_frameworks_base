@@ -181,21 +181,29 @@ public class BubbleController implements ConfigurationChangeListener,
         RemoteCallable<BubbleController>, Bubbles.SysuiProxy.Provider,
         BubbleTaskUnfoldTransitionMerger {
 
+    @VisibleForTesting
+    boolean isAppBubbleUserAvailable(UserHandle user) {
+        return mUserManager.getProfiles(mCurrentUserId).stream()
+                .anyMatch(profile -> profile.id == user.getIdentifier())
+                && !mUserManager.isQuietModeEnabled(user)
+                && mUserManager.isUserUnlocked(user);
+    }
+
     //Ext add
     private BubbleExt mBubbleExt;
     private final Set<String> mRetryingPackages = new HashSet<>();
+    // Only retry a task that was actually removed. A task-moved callback also fires while
+    // TaskView is opening a bubble; treating that callback as a fullscreen request races the
+    // bubble transition and leaves the embedded app with no surface.
     private final android.app.TaskStackListener mBubbleTaskListener = new android.app.TaskStackListener() {
         @Override
         public void onTaskRemoved(int taskId) {
             mMainExecutor.execute(() -> handleTaskRemoved(taskId));
         }
 
-        @Override
-        public void onTaskMovedToFront(ActivityManager.RunningTaskInfo taskInfo) {
-            mMainExecutor.execute(() -> handleTaskMovedToFront(taskInfo));
-        }
     };
     private String mLastRequestPackage = null;
+    private UserHandle mLastRequestUser;
     private long mLastRequestTime = 0;
 
     private static final String TAG = TAG_WITH_CLASS_NAME ? "BubbleController" : TAG_BUBBLES;
@@ -3695,6 +3703,23 @@ public class BubbleController implements ConfigurationChangeListener,
         }
 
         @Override
+        public void showNotificationAppBubble(PendingIntent intent) {
+            mMainExecutor.execute(() -> {
+                if (!intent.isActivity()) return;
+                UserHandle user = intent.getCreatorUserHandle();
+                if (!isAppBubbleUserAvailable(user)) return;
+                Bubble bubble = Bubble.createAppBubble(intent, user, mMainExecutor,
+                        mBackgroundExecutor);
+                // A notification can target a different conversation than an existing app bubble.
+                // Replace its TaskView so the original notification PendingIntent is delivered.
+                mLastRequestPackage = null;
+                removeBubble(bubble.getKey(), DISMISS_INVALID_INTENT);
+                bubble.setShouldAutoExpand(true);
+                inflateAndAdd(bubble, true, false);
+            });
+        }
+
+        @Override
         public void showOrHideNoteBubble(Intent intent, UserHandle user, @Nullable Icon icon) {
             mMainExecutor.execute(
                     () -> BubbleController.this.showOrHideNotesBubble(intent, user, icon));
@@ -3986,28 +4011,52 @@ public class BubbleController implements ConfigurationChangeListener,
         }
     }
 
+    void onAppBubbleProfileUnavailable(UserHandle user) {
+        mMainExecutor.execute(() -> {
+            List<Bubble> bubbles = new ArrayList<>(mBubbleData.getBubbles());
+            bubbles.addAll(mBubbleData.getOverflowBubbles());
+            for (Bubble bubble : bubbles) {
+                if (bubble.isAppBubble() && user.equals(bubble.getUser())) {
+                    mBubbleData.dismissBubbleWithKey(bubble.getKey(), Bubbles.DISMISS_USER_CHANGED);
+                }
+            }
+            if (user.equals(mLastRequestUser)) mLastRequestPackage = null;
+        });
+    }
+
     //Ext add
     public void showOrUpdateAppBubble(String packageName) {
+        showOrUpdateAppBubble(packageName, UserHandle.of(ActivityManager.getCurrentUser()));
+    }
+
+    public void showOrUpdateAppBubble(String packageName, UserHandle user) {
         mMainExecutor.execute(() -> {
+            if (!isAppBubbleUserAvailable(user)) return;
+            Bubble existing = mBubbleData.getAnyBubbleWithKey(
+                    Bubble.getAppBubbleKeyForApp(packageName, user));
+            if (existing != null) {
+                expandStackAndSelectBubble(existing);
+                return;
+            }
             mLastRequestPackage = packageName;
+            mLastRequestUser = user;
             mLastRequestTime = System.currentTimeMillis();
 
-            if (mRetryingPackages.contains(packageName)) {
+            if (mRetryingPackages.contains(user.getIdentifier() + ":" + packageName)) {
                 ActivityManager am = mContext.getSystemService(ActivityManager.class);
                 if (am != null) {
-                    am.forceStopPackage(packageName);
+                    am.forceStopPackageAsUser(packageName, user.getIdentifier());
                 }
             }
 
-            UserHandle user = UserHandle.of(ActivityManager.getCurrentUser());
-            PackageManager pm = mContext.getPackageManager();
+            PackageManager pm = mContext.createContextAsUser(user, 0).getPackageManager();
             Intent launchIntent = pm.getLaunchIntentForPackage(packageName);
             
             if (launchIntent == null) {
                 return;
             }
 
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK 
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                     | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                     | Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
 
@@ -4028,53 +4077,35 @@ public class BubbleController implements ConfigurationChangeListener,
     private void handleTaskRemoved(int taskId) {
         mMainExecutor.execute(() -> {
             String packageToRetry = null;
+            UserHandle userToRetry = null;
             Bubble bubble = mBubbleData.getBubbleInStackWithTaskId(taskId);
             if (bubble != null && bubble.isAppBubble()) {
                 packageToRetry = bubble.getPackageName();
+                userToRetry = bubble.getUser();
                 mBubbleData.dismissBubbleWithKey(bubble.getKey(), Bubbles.DISMISS_USER_GESTURE);
             } 
             else {
                 long timeDiff = System.currentTimeMillis() - mLastRequestTime;
                 if (mLastRequestPackage != null && timeDiff < 1000) {
                     packageToRetry = mLastRequestPackage;
+                    userToRetry = mLastRequestUser;
                 }
             }
-            if (packageToRetry != null) {
+            if (packageToRetry != null && userToRetry != null) {
                 final String pkg = packageToRetry;
-                
-                if (!mRetryingPackages.contains(pkg)) {
-                    mRetryingPackages.add(pkg);
+                final UserHandle user = userToRetry;
+                final String retryKey = user.getIdentifier() + ":" + pkg;
+                if (!mRetryingPackages.contains(retryKey)) {
+                    mRetryingPackages.add(retryKey);
                     mMainExecutor.executeDelayed(() -> {
-                        showOrUpdateAppBubble(pkg); 
+                        showOrUpdateAppBubble(pkg, user);
                     }, 500);
                 } else {
-                    mRetryingPackages.remove(pkg);
+                    mRetryingPackages.remove(retryKey);
                     mLastRequestPackage = null;
                 }
             }
         });
     }
 
-    private void handleTaskMovedToFront(android.app.ActivityManager.RunningTaskInfo taskInfo) {
-        mMainExecutor.execute(() -> {
-            Bubble bubble = mBubbleData.getBubbleInStackWithTaskId(taskInfo.taskId);
-            if (bubble != null && bubble.isAppBubble() && !isStackExpanded()) {
-                String pkg = bubble.getPackageName();
-                mBubbleData.dismissBubbleWithKey(bubble.getKey(), Bubbles.DISMISS_USER_GESTURE);
-                mMainExecutor.executeDelayed(() -> {
-                    launchAppFullscreen(pkg);
-                }, 300);
-            }
-        });
-    }
-    
-    private void launchAppFullscreen(String packageName) {
-        PackageManager pm = mContext.getPackageManager();
-        Intent launchIntent = pm.getLaunchIntentForPackage(packageName);
-        if (launchIntent != null) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | 
-                                  Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            mContext.startActivityAsUser(launchIntent, UserHandle.CURRENT);
-        }
-    }
 }

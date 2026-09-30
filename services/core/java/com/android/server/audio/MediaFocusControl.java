@@ -321,9 +321,7 @@ public class MediaFocusControl implements PlayerFocusEnforcer {
 
                 mFocusStack.pop();
                 // is there a new focus owner?
-                if (!mFocusStack.isEmpty()) {
-                    mFocusStack.peek().handleFocusGain(AudioManager.AUDIOFOCUS_GAIN);
-                }
+                notifyTopOfAudioFocusStack();
             } else {
                 // focus loss if for another entry that's not at the top of the stack,
                 // just remove it from the stack and make it lose focus
@@ -419,7 +417,12 @@ public class MediaFocusControl implements PlayerFocusEnforcer {
                 }
             } else {
                 for (FocusRequester multifr : mMultiAudioFocusList) {
-                    if (isLockedFocusOwner(multifr)) {
+                    // Ordinary multi-focus owners live outside the focus stack. Restore them
+                    // once all transient owners have left, including after binder death.
+                    // A remaining transient owner must continue to suppress their playback.
+                    if ((mFocusStack.empty()
+                            && multifr.toAudioFocusInfo().isLossReceivedTransient())
+                            || isLockedFocusOwner(multifr)) {
                         multifr.handleFocusGain(AudioManager.AUDIOFOCUS_GAIN);
                     }
                 }

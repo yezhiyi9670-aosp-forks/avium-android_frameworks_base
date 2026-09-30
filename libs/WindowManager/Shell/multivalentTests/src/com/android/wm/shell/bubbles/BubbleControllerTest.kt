@@ -177,8 +177,41 @@ class BubbleControllerTest(flags: FlagsParameterization) {
         isSmallTablet = true,
     )
 
+    @Test
+    fun appBubbleUserAvailable_privateAndCloneProfilesRespectLockAndMembership() {
+        val clone = android.content.pm.UserInfo(11, "Clone", 0)
+        clone.userType = UserManager.USER_TYPE_PROFILE_CLONE
+        val privateProfile = android.content.pm.UserInfo(12, "Private", 0)
+        privateProfile.userType = UserManager.USER_TYPE_PROFILE_PRIVATE
+        userManager.stub {
+            on { getProfiles(anyInt()) } doReturn listOf(clone, privateProfile)
+            on { isUserUnlocked(UserHandle.of(11)) } doReturn true
+            on { isUserUnlocked(UserHandle.of(12)) } doReturn true
+            on { isUserUnlocked(UserHandle.of(99)) } doReturn true
+        }
+        assertThat(bubbleController.isAppBubbleUserAvailable(UserHandle.of(11))).isTrue()
+        assertThat(bubbleController.isAppBubbleUserAvailable(UserHandle.of(12))).isTrue()
+        assertThat(bubbleController.isAppBubbleUserAvailable(UserHandle.of(99))).isFalse()
+
+        userManager.stub {
+            on { isQuietModeEnabled(UserHandle.of(12)) } doReturn true
+        }
+        assertThat(bubbleController.isAppBubbleUserAvailable(UserHandle.of(12))).isFalse()
+        userManager.stub {
+            on { isQuietModeEnabled(UserHandle.of(12)) } doReturn false
+            on { isUserUnlocked(UserHandle.of(12)) } doReturn false
+        }
+        assertThat(bubbleController.isAppBubbleUserAvailable(UserHandle.of(12))).isFalse()
+    }
+
     @Before
     fun setUp() {
+        // Tests may be installed with a development key on a release-signed device.
+        getInstrumentation().uiAutomation.adoptShellPermissionIdentity(
+            android.Manifest.permission.MANAGE_ACTIVITY_TASKS,
+            android.Manifest.permission.GET_INTENT_SENDER_INTENT,
+            android.Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+        )
         ProtoLog.REQUIRE_PROTOLOGTOOL = false
         ProtoLog.init()
 
@@ -255,7 +288,11 @@ class BubbleControllerTest(flags: FlagsParameterization) {
 
     @After
     fun tearDown() {
-        getInstrumentation().waitForIdleSync()
+        try {
+            getInstrumentation().waitForIdleSync()
+        } finally {
+            getInstrumentation().uiAutomation.dropShellPermissionIdentity()
+        }
     }
 
     @Test

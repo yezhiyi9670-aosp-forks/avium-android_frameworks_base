@@ -506,6 +506,15 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
             boolean animate,
             boolean isActivityIntent) {
         mLogger.logStartNotificationIntent(entry);
+        final boolean usePopup = isActivityIntent && !mKeyguardStateController.isShowing()
+                && mPopUpViewController.shouldJumpNotificationWithPopUp(entry.getSbn().getPackageName());
+        // TaskView cannot forward a remote-input draft; retain the normal send path for it.
+        if (usePopup && fillInIntent == null && "bubble".equals(android.os.SystemProperties.get(
+                "persist.avium.popup_view", "bubble")) && mBubblesManagerOptional.isPresent()) {
+            mBubblesManagerOptional.get().showNotificationAppBubble(intent);
+            mShadeController.collapseShade();
+            return;
+        }
         final int displayId = mContextInteractor.getContext().getDisplayId();
         try {
             ActivityTransitionAnimator.Controller animationController =
@@ -539,6 +548,11 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
                                     mKeyguardStateController.isShowing(),
                                     eventTime)
                                     : createActivityOptions(displayId, transition, cookie);
+                            if (usePopup) {
+                                ActivityOptions popupOptions = ActivityOptions.fromBundle(options);
+                                popupOptions.setLaunchWindowingMode(WINDOWING_MODE_MINI_WINDOW_EXT);
+                                options = popupOptions.toBundle();
+                            }
                             int result = intent.sendAndReturnResult(mContext, 0, fillInIntent, null,
                                     null, null, options);
                             mLogger.logSendPendingIntent(entry, intent, result);
@@ -558,8 +572,7 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
                                     mKeyguardStateController.isShowing(),
                                     eventTime)
                                     : getActivityOptions(displayId, adapter);
-                            boolean useMiniWindow = !mKeyguardStateController.isShowing() &&
-                                mPopUpViewController.shouldJumpNotificationWithPopUp();
+                            boolean useMiniWindow = usePopup;
                             if (useMiniWindow) {
                                 ActivityOptions newOptions = ActivityOptions.fromBundle(options);
                                 newOptions.setLaunchWindowingMode(WINDOWING_MODE_MINI_WINDOW_EXT);

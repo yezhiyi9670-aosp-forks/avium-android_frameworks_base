@@ -155,6 +155,9 @@ public interface Bubbles {
      */
     void showOrHideNoteBubble(Intent intent, UserHandle user, @Nullable Icon icon);
 
+    /** Opens an activity notification in an app bubble, preserving its creator user. */
+    void showNotificationAppBubble(android.app.PendingIntent intent);
+
     /** @return true if the specified {@code taskId} corresponds to app bubble's taskId. */
     boolean isNoteBubbleTaskId(int taskId);
 

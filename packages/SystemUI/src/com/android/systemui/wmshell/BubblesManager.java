@@ -571,6 +571,11 @@ public class BubblesManager {
                 }, mSysuiMainExecutor);
     }
 
+    /** Opens the original notification activity in an app bubble. */
+    public void showNotificationAppBubble(android.app.PendingIntent intent) {
+        mBubbles.showNotificationAppBubble(intent);
+    }
+
     /**
      * Request the stack expand if needed, then select the specified Bubble as current.
      * If no bubble exists for this entry, one is created.

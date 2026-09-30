@@ -888,6 +888,44 @@ public class CameraMetadataNative implements Parcelable {
                         return (T) metadata.getSharedSessionConfiguration();
                     }
                 });
+        sGetCommandMap.put(
+                CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE.getNativeKey(),
+                        new GetCommand() {
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public <T> T getValue(CameraMetadataNative metadata, Key<T> key) {
+                        return (T) metadata.getZoomRatioRange();
+                    }
+                });
+    }
+
+    /**
+     * Some legacy vendor camera providers expose the zoom ratio range in reverse order or with
+     * non-finite values. Reading it directly as Range<Float> makes the Range constructor throw an
+     * AssertionError and prevents CameraX from initializing every camera. Read the native float
+     * tuple first and sanitize only this characteristic.
+     */
+    private Range<Float> getZoomRatioRange() {
+        float[] values = getBase(new Key<>(
+                "android.control.zoomRatioRange", float[].class));
+        if (values == null || values.length < 2) {
+            return null;
+        }
+
+        float lower = values[0];
+        float upper = values[1];
+        if (!Float.isFinite(lower) || lower <= 0.0f) {
+            lower = 1.0f;
+        }
+        if (!Float.isFinite(upper) || upper <= 0.0f) {
+            upper = Math.max(1.0f, lower);
+        }
+        if (lower > upper) {
+            float tmp = lower;
+            lower = upper;
+            upper = tmp;
+        }
+        return new Range<>(lower, upper);
     }
 
     private int[] getAvailableFormats() {

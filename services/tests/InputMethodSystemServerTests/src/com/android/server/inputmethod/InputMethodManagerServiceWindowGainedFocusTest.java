@@ -70,6 +70,36 @@ import java.util.List;
 @RunWith(Parameterized.class)
 public class InputMethodManagerServiceWindowGainedFocusTest
         extends InputMethodManagerServiceTestBase {
+    @Test
+    public void parentImeSharing_onlyMapsOptedInCloneAndPrivateProfiles() {
+        final int profileId = 12;
+        final int parentId = mUserId;
+        final var profile = new android.content.pm.UserInfo(profileId, "Profile", 0);
+        when(mMockUserManagerInternal.getUserInfo(profileId)).thenReturn(profile);
+        when(mMockUserManagerInternal.getProfileParentId(profileId)).thenReturn(parentId);
+        when(mMockUserManagerInternal.isUserUnlockingOrUnlocked(parentId)).thenReturn(true);
+        when(mMockUserManagerInternal.isUserUnlockingOrUnlocked(profileId)).thenReturn(true);
+        when(mMockActivityManagerInternal.getCurrentUserId()).thenReturn(parentId);
+        doReturn(false).when(mInputMethodManagerService).isParentImeSharingEnabled(profileId);
+        profile.userType = android.os.UserManager.USER_TYPE_PROFILE_CLONE;
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(profileId);
+        doReturn(true).when(mInputMethodManagerService).isParentImeSharingEnabled(profileId);
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(parentId);
+        profile.userType = android.os.UserManager.USER_TYPE_PROFILE_PRIVATE;
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(parentId);
+        profile.userType = android.os.UserManager.USER_TYPE_PROFILE_MANAGED;
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(profileId);
+        profile.userType = android.os.UserManager.USER_TYPE_PROFILE_PRIVATE;
+        when(mMockUserManagerInternal.isUserUnlockingOrUnlocked(profileId)).thenReturn(false);
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(profileId);
+        when(mMockUserManagerInternal.isUserUnlockingOrUnlocked(profileId)).thenReturn(true);
+        when(mMockActivityManagerInternal.getCurrentUserId()).thenReturn(parentId + 1);
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(profileId);
+        when(mMockActivityManagerInternal.getCurrentUserId()).thenReturn(parentId);
+        when(mMockUserManagerInternal.isUserUnlockingOrUnlocked(parentId)).thenReturn(false);
+        assertThat(mInputMethodManagerService.resolveProfileImeUserId(profileId)).isEqualTo(profileId);
+    }
+
     private static final String TAG = "IMMSWindowGainedFocusTest";
 
     private static final int[] SOFT_INPUT_STATE_FLAGS =

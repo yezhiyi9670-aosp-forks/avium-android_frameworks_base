@@ -88,6 +88,12 @@ class PopUpViewController @Inject constructor(
                 context, true, userTracker.userId)
     }
 
+    fun shouldJumpNotificationWithPopUp(packageName: String): Boolean {
+        val blacklist = PopUpSettingsHelper.getNotificationJumpBlacklist(context, userTracker.userId)
+        return shouldJumpNotificationWithPopUp() &&
+            blacklist?.split(';')?.contains(packageName) != true
+    }
+
     fun shouldJumpNotificationWithPopUp(): Boolean {
         return if (isLandscape) notificationJumpLandscape else notificationJumpPortrait
     }
