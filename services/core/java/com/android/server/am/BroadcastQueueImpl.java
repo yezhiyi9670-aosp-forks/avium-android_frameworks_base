@@ -1224,8 +1224,14 @@ class BroadcastQueueImpl extends BroadcastQueue {
                 final String msg = "Failed to schedule " + r + " to " + receiver
                         + " via " + app + ": " + e;
                 logw(msg);
-                app.killLocked("Can't deliver broadcast", ApplicationExitInfo.REASON_OTHER,
-                        ApplicationExitInfo.SUBREASON_UNDELIVERED_BROADCAST, true);
+                // A one-way binder transaction can fail with FAILED_TRANSACTION (reported here
+                // as DeadObjectException) simply because the target is temporarily out of
+                // binder buffer space. Killing the process in that case would take down a live
+                // app that is merely backed up, so only kill when its binder is actually gone.
+                if (!isAppBinderAlive(thread)) {
+                    app.killLocked("Can't deliver broadcast", ApplicationExitInfo.REASON_OTHER,
+                            ApplicationExitInfo.SUBREASON_UNDELIVERED_BROADCAST, true);
+                }
                 // If we were trying to deliver a manifest broadcast, throw the error as we need
                 // to try redelivering the broadcast to this receiver.
                 if (receiver instanceof ResolveInfo) {
@@ -1271,12 +1277,25 @@ class BroadcastQueueImpl extends BroadcastQueue {
             } catch (RemoteException e) {
                 final String msg = "Failed to schedule result of " + r + " via " + app + ": " + e;
                 logw(msg);
-                app.killLocked("Can't deliver broadcast", ApplicationExitInfo.REASON_OTHER,
-                        ApplicationExitInfo.SUBREASON_UNDELIVERED_BROADCAST, true);
+                if (!isAppBinderAlive(thread)) {
+                    app.killLocked("Can't deliver broadcast", ApplicationExitInfo.REASON_OTHER,
+                            ApplicationExitInfo.SUBREASON_UNDELIVERED_BROADCAST, true);
+                }
             }
         }
         // Clear so both local and remote references can be GC'ed
         r.resultTo = null;
+    }
+
+    private static boolean isAppBinderAlive(IApplicationThread thread) {
+        if (thread == null) {
+            return false;
+        }
+        try {
+            return thread.asBinder().isBinderAlive();
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     // Required when Flags.anrTimerServiceEnabled is false.  This function can be replaced with a
