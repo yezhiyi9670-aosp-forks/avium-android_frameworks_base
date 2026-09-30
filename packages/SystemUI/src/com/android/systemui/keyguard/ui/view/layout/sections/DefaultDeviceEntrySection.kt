@@ -138,10 +138,9 @@ constructor(
                     str2 = "(${udfpsLocation.centerX}, ${udfpsLocation.centerY})"
                     str3 = "${authController.udfpsLocation}"
                 }
-                val iconScaleFactor = 1.5f
                 centerIcon(
                     Point(udfpsLocation.centerX.toInt(), udfpsLocation.centerY.toInt()),
-                    udfpsLocation.radius * iconScaleFactor,
+                    udfpsLocation.radius,
                     constraintSet,
                 )
             }

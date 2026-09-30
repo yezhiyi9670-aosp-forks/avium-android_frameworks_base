@@ -108,7 +108,11 @@ object DeviceEntryIconViewBinder {
                 repeatOnLifecycle(Lifecycle.State.CREATED) {
                     launch("$TAG#viewModel.useBackgroundProtection") {
                         viewModel.useBackgroundProtection.collect { useBackgroundProtection ->
-                            bgView.visibility = View.GONE
+                            if (useBackgroundProtection) {
+                                bgView.visibility = View.VISIBLE
+                            } else {
+                                bgView.visibility = View.GONE
+                            }
                         }
                     }
                     launch("$TAG#viewModel.burnInOffsets") {
@@ -224,7 +228,7 @@ object DeviceEntryIconViewBinder {
                                     )
                             }
                             fgIconView.imageTintList =
-                                viewModel.tint?.let { ColorStateList.valueOf(it) }
+                                ColorStateList.valueOf(overrideColor?.toArgb() ?: viewModel.tint)
                             fgIconView.setPadding(
                                 viewModel.padding,
                                 viewModel.padding,
@@ -252,7 +256,7 @@ object DeviceEntryIconViewBinder {
                     }
                     launch("$TAG#bgViewModel.color") {
                         bgViewModel.color.collect { color ->
-                            bgView.imageTintList = null
+                            bgView.imageTintList = ColorStateList.valueOf(color)
                         }
                     }
                 }
