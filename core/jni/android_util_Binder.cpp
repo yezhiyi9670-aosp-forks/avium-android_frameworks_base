@@ -1580,6 +1580,27 @@ static jboolean android_os_BinderProxy_transact(JNIEnv* env, jobject obj,
         return JNI_FALSE;
     }
 
+    // A one-way transaction is fire-and-forget: the driver may refuse to enqueue it because the
+    // target's async binder buffer is momentarily full (BR_FAILED_REPLY) or because the target is
+    // temporarily frozen (BR_FROZEN_REPLY). Both surface here as FAILED_TRANSACTION, and
+    // signalExceptionForError() below turns a small-parcel FAILED_TRANSACTION into a
+    // DeadObjectException - i.e. it tells the caller the peer died when the peer is in fact alive
+    // and merely busy. Framework code acts on that lie: it kills the process ("Can't deliver
+    // broadcast"), drops live media-session callbacks, and crashes clients with
+    // DeadSystemRuntimeException. The kernel already distinguishes the two cases (it reports
+    // BR_DEAD_REPLY for a dying target), so preserve that distinction here: if the target is still
+    // alive, the one-way call was simply dropped, which is exactly what "one-way" permits and what
+    // the caller must already tolerate. Genuine deaths still arrive as DEAD_OBJECT (and are still
+    // reported), and genuinely oversized payloads still arrive as TransactionTooLargeException.
+    if (err == FAILED_TRANSACTION && (flags & IBinder::FLAG_ONEWAY) != 0
+            && data->dataSize() <= 200 * 1024 && target->isBinderAlive()) {
+        ALOGW("Dropping one-way transaction (code %" PRId32 ", size %zu, target %p): target is "
+              "still alive but the transaction failed, most likely because its binder buffer is "
+              "temporarily full",
+              code, data->dataSize(), target);
+        return JNI_TRUE;
+    }
+
     signalExceptionForError(env, obj, err, true /*canThrowRemoteException*/, data->dataSize());
     return JNI_FALSE;
 }
