@@ -124,6 +124,26 @@ public class NotificationMediaManager implements Dumpable {
     }
 
     /**
+     * Self-healing for the cached metadata. {@link #mMediaMetadata} is normally only refreshed by
+     * {@link MediaController.Callback#onMetadataChanged}; if that callback is dropped (for example
+     * because of transient binder backpressure) the AOD/lockscreen media lines would stay stale
+     * until the next session change. Re-read it from the still-live controller instead, using the
+     * reliably delivered media notification update as the hint. Runs on the background executor so
+     * it never blocks the main thread, and keeps the previous value if the read fails.
+     */
+    private void refreshCurrentMediaMetadata() {
+        MediaController controller = mMediaController;
+        if (controller == null) {
+            return;
+        }
+        MediaMetadata metadata = controller.getMetadata();
+        if (metadata != null && !metadata.equals(mMediaMetadata)) {
+            mMediaMetadata = metadata;
+            dispatchUpdateMediaMetaData();
+        }
+    }
+
+    /**
      * Injected constructor. See {@link CentralSurfacesModule}.
      */
     public NotificationMediaManager(
@@ -155,11 +175,19 @@ public class NotificationMediaManager implements Dumpable {
             @Override
             public void onEntryAdded(@NonNull NotificationEntry entry) {
                 mMediaDataManager.onNotificationAdded(entry.getKey(), entry.getSbn());
+                if (entry.isMediaNotification()) {
+                    mBackgroundExecutor.execute(
+                            NotificationMediaManager.this::refreshCurrentMediaMetadata);
+                }
             }
 
             @Override
             public void onEntryUpdated(NotificationEntry entry) {
                 mMediaDataManager.onNotificationAdded(entry.getKey(), entry.getSbn());
+                if (entry.isMediaNotification()) {
+                    mBackgroundExecutor.execute(
+                            NotificationMediaManager.this::refreshCurrentMediaMetadata);
+                }
             }
 
             @Override
@@ -339,6 +367,16 @@ public class NotificationMediaManager implements Dumpable {
             if (DEBUG_MEDIA) {
                 Log.v(TAG, "DEBUG_MEDIA: insert listener, found new controller: "
                         + mMediaController + ", receive metadata: " + mMediaMetadata);
+            }
+        } else if (mMediaController != null) {
+            // Same session: the cached metadata is only refreshed by onMetadataChanged(), so a
+            // callback that was dropped (for example because of transient binder backpressure)
+            // would leave the AOD/lockscreen media lines stale indefinitely. Re-read the metadata
+            // from the still-live controller whenever we are asked to look at media again.
+            MediaMetadata metadata = mMediaController.getMetadata();
+            if (metadata != null && !metadata.equals(mMediaMetadata)) {
+                mMediaMetadata = metadata;
+                dispatchUpdateMediaMetaData();
             }
         }
 

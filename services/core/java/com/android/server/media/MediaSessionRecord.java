@@ -139,6 +139,27 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
     private static final int OPTIMISTIC_VOLUME_TIMEOUT = 1000;
 
     /**
+     * Minimum interval between two consecutive fan-outs of the same kind to the registered
+     * {@link ISessionControllerCallback}s.
+     *
+     * <p>Every update is pushed to every registered callback, so an app that drives its session at
+     * a high rate (as media apps do while the user skips through tracks) would otherwise amplify
+     * into thousands of one-way binder transactions per second, exhaust its clients' binder
+     * buffers and make the system drop updates. Requests are coalesced (the latest state wins) and
+     * rate limited, with the trailing edge always delivered so clients converge. The values are
+     * deliberately small: clients extrapolate the playback position from
+     * (state, position, speed, updated), and a queue that is up to a second late is harmless.
+     */
+    private static final long PLAYBACK_STATE_PUSH_MIN_INTERVAL_MS = 200;
+    private static final long QUEUE_PUSH_MIN_INTERVAL_MS = 1000;
+
+    /**
+     * Delay before re-pushing state to clients whose update could not be delivered because of
+     * binder backpressure, and the minimum spacing of such repairs.
+     */
+    private static final long CALLBACK_RESYNC_DELAY_MS = 1000;
+
+    /**
      * These are states that usually indicate the user took an action and should
      * bump priority regardless of the old state.
      */
@@ -224,6 +245,13 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
 
     private boolean mIsActive = false;
     private boolean mDestroyed = false;
+
+    // Push pacing and self-healing bookkeeping. These are only ever read or written from mHandler's
+    // looper (all push* and resync* methods run there).
+    private long mLastPlaybackStatePushTime;
+    private long mLastQueuePushTime;
+    private long mLastCallbackResyncTime;
+    private boolean mCallbackResyncScheduled;
 
     private long mDuration = -1;
     private String mMetadataDescription;
@@ -856,9 +884,11 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
             }
             playbackState = mPlaybackState;
         }
-        performOnCallbackHolders(
+        if (performOnCallbackHolders(
                 "pushPlaybackStateUpdate",
-                holder -> holder.mCallback.onPlaybackStateChanged(playbackState));
+                holder -> holder.mCallback.onPlaybackStateChanged(playbackState))) {
+            scheduleCallbackResync();
+        }
     }
 
     private void pushMetadataUpdate() {
@@ -869,8 +899,10 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
             }
             metadata = mMetadata;
         }
-        performOnCallbackHolders(
-                "pushMetadataUpdate", holder -> holder.mCallback.onMetadataChanged(metadata));
+        if (performOnCallbackHolders(
+                "pushMetadataUpdate", holder -> holder.mCallback.onMetadataChanged(metadata))) {
+            scheduleCallbackResync();
+        }
     }
 
     private void pushQueueUpdate() {
@@ -881,7 +913,7 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
             }
             toSend = mQueue == null ? null : new ArrayList<>(mQueue);
         }
-        performOnCallbackHolders(
+        if (performOnCallbackHolders(
                 "pushQueueUpdate",
                 holder -> {
                     ParceledListSlice<QueueItem> parcelableQueue = null;
@@ -892,7 +924,69 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
                         parcelableQueue.setInlineCountLimit(1);
                     }
                     holder.mCallback.onQueueChanged(parcelableQueue);
-                });
+                })) {
+            scheduleCallbackResync();
+        }
+    }
+
+    /**
+     * Coalescing, trailing-edge rate limiter for the playback-state fan-out. Runs on mHandler's
+     * looper: if the previous fan-out is recent, keep at most one trailing push so the newest state
+     * still reaches clients; otherwise push immediately.
+     */
+    private void pushPlaybackStateUpdateThrottled() {
+        final long now = SystemClock.uptimeMillis();
+        final long next = mLastPlaybackStatePushTime + PLAYBACK_STATE_PUSH_MIN_INTERVAL_MS;
+        if (now >= next) {
+            mLastPlaybackStatePushTime = now;
+            pushPlaybackStateUpdate();
+            return;
+        }
+        if (!mHandler.hasMessages(MessageHandler.MSG_UPDATE_PLAYBACK_STATE)) {
+            mHandler.sendEmptyMessageAtTime(MessageHandler.MSG_UPDATE_PLAYBACK_STATE, next);
+        }
+    }
+
+    /**
+     * Same pacing for the queue fan-out, which is by far the most expensive one: every client
+     * holding a large queue pulls the whole list back from this process.
+     */
+    private void pushQueueUpdateThrottled() {
+        final long now = SystemClock.uptimeMillis();
+        final long next = mLastQueuePushTime + QUEUE_PUSH_MIN_INTERVAL_MS;
+        if (now >= next) {
+            mLastQueuePushTime = now;
+            pushQueueUpdate();
+            return;
+        }
+        if (!mHandler.hasMessages(MessageHandler.MSG_UPDATE_QUEUE)) {
+            mHandler.sendEmptyMessageAtTime(MessageHandler.MSG_UPDATE_QUEUE, next);
+        }
+    }
+
+    /**
+     * Self-healing: an update that could not be delivered to a client that is still alive is
+     * repaired by re-pushing the authoritative state shortly afterwards. Because the push methods
+     * read the current state, a single repair covers any number of dropped intermediate updates;
+     * the delayed message and the spacing check keep the repair from becoming a new flood source.
+     */
+    private void scheduleCallbackResync() {
+        final long now = SystemClock.uptimeMillis();
+        if (mCallbackResyncScheduled || now - mLastCallbackResyncTime < CALLBACK_RESYNC_DELAY_MS) {
+            return;
+        }
+        mCallbackResyncScheduled = true;
+        mHandler.sendEmptyMessageDelayed(
+                MessageHandler.MSG_CALLBACK_RESYNC, CALLBACK_RESYNC_DELAY_MS);
+    }
+
+    private void resyncCallbackHolders() {
+        mCallbackResyncScheduled = false;
+        mLastCallbackResyncTime = SystemClock.uptimeMillis();
+        // The push methods bail out by themselves if the session has been destroyed meanwhile.
+        Slog.i(TAG, "Resyncing callbacks after a dropped update, this=" + this);
+        pushPlaybackStateUpdate();
+        pushMetadataUpdate();
     }
 
     private void pushQueueTitleUpdate() {
@@ -967,12 +1061,34 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         void performOn(ISessionControllerCallbackHolder holder) throws RemoteException;
     }
 
-    private void performOnCallbackHolders(String operationName, ControllerCallbackCall call) {
+    /**
+     * Fans an operation out to every registered controller callback.
+     *
+     * @return {@code true} if the operation failed for at least one holder that is still alive,
+     *     meaning that holder may have missed this update and should be resynced.
+     */
+    private boolean performOnCallbackHolders(String operationName, ControllerCallbackCall call) {
         ArrayList<ISessionControllerCallbackHolder> deadCallbackHolders = new ArrayList<>();
+        boolean droppedForLiveHolder = false;
         for (ISessionControllerCallbackHolder holder : mControllerCallbackHolders) {
             try {
                 call.performOn(holder);
-            } catch (RemoteException | NoSuchElementException exception) {
+            } catch (RemoteException exception) {
+                // A RemoteException is not proof of death. The common one-way case is handled
+                // centrally in android_os_BinderProxy_transact(), but an oversized payload (for
+                // example a very large metadata bundle) can still fail against a live client.
+                // Evicting a live holder here is what made media UI go permanently stale: the
+                // client was still alive, but its registration was gone and it never heard from
+                // the session again. Only evict holders whose binder is actually gone; for the
+                // rest, remember that they need a resync.
+                if (isCallbackHolderDead(holder)) {
+                    deadCallbackHolders.add(holder);
+                } else {
+                    droppedForLiveHolder = true;
+                }
+                logCallbackException(
+                        "Exception while executing: " + operationName, holder, exception);
+            } catch (NoSuchElementException exception) {
                 deadCallbackHolders.add(holder);
                 logCallbackException(
                         "Exception while executing: " + operationName, holder, exception);
@@ -980,6 +1096,15 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         }
         synchronized (mLock) {
             mControllerCallbackHolders.removeAll(deadCallbackHolders);
+        }
+        return droppedForLiveHolder;
+    }
+
+    private static boolean isCallbackHolderDead(ISessionControllerCallbackHolder holder) {
+        try {
+            return !holder.mCallback.asBinder().isBinderAlive();
+        } catch (RuntimeException e) {
+            return true;
         }
     }
 
@@ -1481,6 +1606,9 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
 
     private void resetQueue() {
         synchronized (mLock) {
+            if (mQueue == null) {
+                return;
+            }
             mQueue = null;
         }
         mHandler.post(MessageHandler.MSG_UPDATE_QUEUE);
@@ -1491,6 +1619,14 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
                 QueueItem.class,
                 (list) -> {
                     synchronized (mLock) {
+                        // Players commonly re-publish the whole queue on every track change even
+                        // though it did not change. Fanning out an unchanged queue makes every
+                        // client re-pull the full list (with a 785 item queue this dominated all
+                        // binder traffic in the field), so skip it. List.equals() is O(n) string
+                        // comparison, which is negligible next to one fan-out.
+                        if (list == null ? mQueue == null : list.equals(mQueue)) {
+                            return;
+                        }
                         mQueue = list;
                     }
                     mHandler.post(MessageHandler.MSG_UPDATE_QUEUE);
@@ -2560,6 +2696,7 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         private static final int MSG_UPDATE_SESSION_STATE = 7;
         private static final int MSG_UPDATE_VOLUME = 8;
         private static final int MSG_DESTROYED = 9;
+        private static final int MSG_CALLBACK_RESYNC = 10;
 
         public MessageHandler(Looper looper) {
             super(looper);
@@ -2571,10 +2708,10 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
                     pushMetadataUpdate();
                     break;
                 case MSG_UPDATE_PLAYBACK_STATE:
-                    pushPlaybackStateUpdate();
+                    pushPlaybackStateUpdateThrottled();
                     break;
                 case MSG_UPDATE_QUEUE:
-                    pushQueueUpdate();
+                    pushQueueUpdateThrottled();
                     break;
                 case MSG_UPDATE_QUEUE_TITLE:
                     pushQueueTitleUpdate();
@@ -2593,6 +2730,10 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
                     break;
                 case MSG_DESTROYED:
                     pushSessionDestroyed();
+                    break;
+                case MSG_CALLBACK_RESYNC:
+                    resyncCallbackHolders();
+                    break;
             }
         }
 
@@ -2601,7 +2742,33 @@ public class MediaSessionRecord extends MediaSessionRecordImpl implements IBinde
         }
 
         public void post(int what, Object obj) {
+            if (obj == null && isCoalescible(what)) {
+                // One pending request per update kind is enough: every push method reads the
+                // current state under mLock, so a newer request always supersedes an older one.
+                // Dropping superseded requests here collapses bursts at the source instead of
+                // fanning every intermediate state out to every callback.
+                removeMessages(what);
+            }
             obtainMessage(what, obj).sendToTarget();
+        }
+
+        /**
+         * Whether requests for this message can be coalesced (latest wins). Events carry a payload
+         * and session destruction is terminal, so those are never coalesced.
+         */
+        private static boolean isCoalescible(int what) {
+            switch (what) {
+                case MSG_UPDATE_METADATA:
+                case MSG_UPDATE_PLAYBACK_STATE:
+                case MSG_UPDATE_QUEUE:
+                case MSG_UPDATE_QUEUE_TITLE:
+                case MSG_UPDATE_EXTRAS:
+                case MSG_UPDATE_SESSION_STATE:
+                case MSG_UPDATE_VOLUME:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         public void post(int what, Object obj, Bundle data) {
