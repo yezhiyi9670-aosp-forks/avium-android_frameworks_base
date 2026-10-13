@@ -96,6 +96,16 @@ public class KeyguardStatusBarView extends RelativeLayout {
     private final MutableStateFlow<DarkChange> mDarkChange = StateFlowKt.MutableStateFlow(
             DarkChange.EMPTY);
 
+    /**
+     * Wallpaper based text color pushed in by {@link KeyguardStatusBarViewController} (see
+     * {@link #onThemeChanged}), together with the icon group it applies to. Both are kept so the
+     * tint can be re-applied when this view becomes visible again: LightBarController re-tints the
+     * status bar icons whenever the window appearance changes, which can happen while this view is
+     * hidden.
+     */
+    @ColorInt private int mWallpaperTextColor = Color.WHITE;
+    @Nullable private TintedIconManager mTintedIconManager;
+
     private View mCutoutSpace;
     private ViewGroup mStatusIconArea;
     private int mLayoutState = LAYOUT_NONE;
@@ -441,6 +451,10 @@ public class KeyguardStatusBarView extends RelativeLayout {
         } else {
             updateVisibilities();
             updateSystemIconsLayoutParams();
+            // LightBarController re-tints the status bar icons whenever the window appearance
+            // changes, which can undo the wallpaper based tint while this view is hidden, so
+            // re-apply it on every show.
+            updateIconsAndTextColors(mTintedIconManager, mWallpaperTextColor);
         }
     }
 
@@ -449,12 +463,22 @@ public class KeyguardStatusBarView extends RelativeLayout {
         return false;
     }
 
-    /** Should only be called from {@link KeyguardStatusBarViewController}. */
-    void onThemeChanged(TintedIconManager iconManager) {
+    /**
+     * Applies the wallpaper based colors of the keyguard status bar.
+     *
+     * <p>Should only be called from {@link KeyguardStatusBarViewController}, which resolves the
+     * wallpaper text color from the wallpaper itself instead of from this view's context: the
+     * context can predate the wallpaper based SystemUI theme (see
+     * {@code CentralSurfaces.updateTheme()}), in which case the {@code wallpaperTextColor} theme
+     * attribute would still resolve to the default (white) color.
+     */
+    void onThemeChanged(TintedIconManager iconManager, @ColorInt int wallpaperTextColor) {
+        mTintedIconManager = iconManager;
+        mWallpaperTextColor = wallpaperTextColor;
         if (mBatteryView != null) {
             mBatteryView.setColorsFromContext(mContext);
         }
-        updateIconsAndTextColors(iconManager);
+        updateIconsAndTextColors(iconManager, wallpaperTextColor);
     }
 
     /** Should only be called from {@link KeyguardStatusBarViewController}. */
@@ -472,9 +496,8 @@ public class KeyguardStatusBarView extends RelativeLayout {
         }
     }
 
-    private void updateIconsAndTextColors(TintedIconManager iconManager) {
-        @ColorInt int textColor = Utils.getColorAttrDefaultColor(mContext,
-                R.attr.wallpaperTextColor);
+    private void updateIconsAndTextColors(TintedIconManager iconManager,
+            @ColorInt int textColor) {
         float luminance = Color.luminance(textColor);
         @ColorInt int iconColor = Utils.getColorStateListDefaultColor(mContext,
                     luminance < 0.5

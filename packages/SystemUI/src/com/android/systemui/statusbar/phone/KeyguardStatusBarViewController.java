@@ -33,6 +33,7 @@ import android.os.UserManager;
 import android.provider.Settings;
 import android.util.ArraySet;
 import android.util.MathUtils;
+import android.view.ContextThemeWrapper;
 import android.view.DisplayCutout;
 import android.view.View;
 import android.view.ViewGroup;
@@ -51,8 +52,10 @@ import com.android.keyguard.CarrierTextController;
 import com.android.keyguard.KeyguardUpdateMonitor;
 import com.android.keyguard.KeyguardUpdateMonitorCallback;
 import com.android.keyguard.logging.KeyguardLogger;
+import com.android.settingslib.Utils;
 import com.android.systemui.Flags;
 import com.android.systemui.battery.BatteryMeterViewController;
+import com.android.systemui.colorextraction.SysuiColorExtractor;
 import com.android.systemui.communal.domain.interactor.CommunalSceneInteractor;
 import com.android.systemui.dagger.qualifiers.Background;
 import com.android.systemui.dagger.qualifiers.Main;
@@ -135,6 +138,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
 
     private final CoroutineDispatcher mCoroutineDispatcher;
     private final Context mContext;
+    private final SysuiColorExtractor mColorExtractor;
     private final CarrierTextController mCarrierTextController;
     private final ConfigurationController mConfigurationController;
     private final SystemStatusAnimationScheduler mAnimationScheduler;
@@ -358,6 +362,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
             @Main CoroutineDispatcher dispatcher,
             @ShadeDisplayAware Context context,
             KeyguardStatusBarView view,
+            SysuiColorExtractor colorExtractor,
             CarrierTextController carrierTextController,
             ConfigurationController configurationController,
             SystemStatusAnimationScheduler animationScheduler,
@@ -397,6 +402,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
         super(view);
         mCoroutineDispatcher = dispatcher;
         mContext = context;
+        mColorExtractor = colorExtractor;
         mCarrierTextController = carrierTextController;
         mConfigurationController = configurationController;
         mAnimationScheduler = animationScheduler;
@@ -592,7 +598,24 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
 
     /** Should be called when the theme changes. */
     public void onThemeChanged() {
-        mView.onThemeChanged(mTintedIconManager);
+        mView.onThemeChanged(mTintedIconManager, wallpaperTextColor());
+    }
+
+    /**
+     * Resolves the wallpaper text color the keyguard status bar has to use.
+     *
+     * <p>The wallpaper decides it, through the same hint {@code CentralSurfaces.updateTheme()} uses
+     * to pick the SystemUI theme, and the color is resolved from a freshly themed context the way
+     * {@link com.android.systemui.statusbar.policy.Clock#onColorsChanged} does: this view's context
+     * can be older than the wallpaper based theme, in which case {@code ?attr/wallpaperTextColor}
+     * would still resolve to the default color. That is why the lockscreen status bar icons used to
+     * stay white on a bright wallpaper.
+     */
+    private int wallpaperTextColor() {
+        final boolean lightWallpaper = mColorExtractor.getNeutralColors().supportsDarkText();
+        final Context themedContext = new ContextThemeWrapper(mContext,
+                lightWallpaper ? R.style.Theme_SystemUI_LightWallpaper : R.style.Theme_SystemUI);
+        return Utils.getColorAttrDefaultColor(themedContext, R.attr.wallpaperTextColor);
     }
 
     /** Sets whether user switcher is enabled. */
