@@ -190,6 +190,11 @@ public class StatusBarManagerService extends IStatusBarService.Stub implements D
     private final Handler mHandler = new Handler();
     private NotificationDelegate mNotificationDelegate;
     private volatile IStatusBar mBar;
+    // Last ambient display suppression state forwarded to the bar. Kept so it can be replayed
+    // when a bar registers, since the state would otherwise be lost if it was set while no bar
+    // was registered (e.g. zen device effects applied at boot, before SystemUI starts, or while
+    // SystemUI is restarting).
+    private volatile boolean mAmbientDisplaySuppressed;
     private final ArrayMap<String, StatusBarIcon> mIcons = new ArrayMap<>();
 
     // for disabling the status bar
@@ -1800,6 +1805,7 @@ public class StatusBarManagerService extends IStatusBarService.Stub implements D
         mBar = bar;
         mDeathRecipient.linkToDeath();
         notifyBarAttachChanged();
+        replayAmbientDisplaySuppression(bar);
         final ArrayMap<String, StatusBarIcon> icons;
         synchronized (mIcons) {
             icons = new ArrayMap<>(mIcons);
@@ -1824,6 +1830,7 @@ public class StatusBarManagerService extends IStatusBarService.Stub implements D
         mBar = bar;
         mDeathRecipient.linkToDeath();
         notifyBarAttachChanged();
+        replayAmbientDisplaySuppression(bar);
 
         synchronized (mLock) {
             Map<String, RegisterStatusBarResult> results = new HashMap<>();
@@ -2301,12 +2308,31 @@ public class StatusBarManagerService extends IStatusBarService.Stub implements D
         enforceStatusBarService();
         enforceValidCallingUser();
 
+        mAmbientDisplaySuppressed = suppress;
         IStatusBar bar = mBar;
         if (bar != null) {
             try {
                 bar.suppressAmbientDisplay(suppress);
             } catch (RemoteException ex) {
             }
+        }
+    }
+
+    /**
+     * Re-delivers the last known ambient display suppression state to a newly registered bar.
+     *
+     * <p>Unlike the state carried in {@link RegisterStatusBarResult}, ambient display suppression
+     * is a one-way notification, so a request made while no bar was registered (for example, zen
+     * device effects applied during boot before SystemUI is running) would otherwise be lost.
+     */
+    private void replayAmbientDisplaySuppression(IStatusBar bar) {
+        if (bar == null) {
+            return;
+        }
+        try {
+            bar.suppressAmbientDisplay(mAmbientDisplaySuppressed);
+        } catch (RemoteException ex) {
+            Slog.w(TAG, "Failed to replay ambient display suppression", ex);
         }
     }
 

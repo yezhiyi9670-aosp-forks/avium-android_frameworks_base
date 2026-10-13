@@ -176,6 +176,19 @@ public class StatusBarManagerServiceTest {
     }
 
     @Test
+    public void testAmbientDisplaySuppressionIsReplayedOnBarRegister()
+            throws RemoteException {
+        mStatusBarManagerService.suppressAmbientDisplay(true);
+        verify(mMockStatusBar).suppressAmbientDisplay(true);
+
+        // The state is not part of RegisterStatusBarResult, so a bar that (re-)registers - after
+        // boot, or after a SystemUI restart - must be told about it again.
+        mStatusBarManagerService.registerStatusBar(mMockStatusBar);
+
+        verify(mMockStatusBar, times(2)).suppressAmbientDisplay(true);
+    }
+
+    @Test
     @CoreCompatChangeRule.EnableCompatChanges(
             {StatusBarManagerService.REQUEST_LISTENING_MUST_MATCH_PACKAGE})
     public void testRequestActive_changeEnabled_OKCall() throws RemoteException {
