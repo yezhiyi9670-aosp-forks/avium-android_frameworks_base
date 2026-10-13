@@ -17,10 +17,10 @@
 package com.android.systemui.keyguard.ui.binder
 
 import android.annotation.SuppressLint
-import android.view.ViewGroup
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.android.app.tracing.coroutines.launchTraced as launch
+import com.android.keyguard.KeyguardSliceView
 import com.android.keyguard.KeyguardSliceViewController
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
 import com.android.systemui.keyguard.ui.viewmodel.AodBurnInViewModel
@@ -32,7 +32,7 @@ object KeyguardSliceViewBinder {
     @SuppressLint("ClickableViewAccessibility")
     @JvmStatic
     fun bind(
-        view: ViewGroup,
+        view: KeyguardSliceView,
         keyguardInteractor: KeyguardInteractor,
         keyguardSliceViewController: KeyguardSliceViewController,
         aodBurnInViewModel: AodBurnInViewModel,
@@ -42,6 +42,15 @@ object KeyguardSliceViewBinder {
                 launch {
                     keyguardInteractor.dozeTimeTick.collect {
                         keyguardSliceViewController.refresh()
+                    }
+                }
+
+                launch {
+                    // Blend the slice text (the date in particular) towards white while dozing, so
+                    // that it stays readable on the black AOD background instead of keeping the
+                    // wallpaper based color that is only correct over the wallpaper.
+                    keyguardInteractor.dozeAmount.collect { dozeAmount ->
+                        view.setDarkAmount(dozeAmount)
                     }
                 }
 

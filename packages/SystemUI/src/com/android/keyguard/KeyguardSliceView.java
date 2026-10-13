@@ -278,6 +278,10 @@ public class KeyguardSliceView extends LinearLayout {
                 ((KeyguardSliceTextView) child).onOverlayChanged();
             }
         }
+        // The wallpaper based text color is only read in onFinishInflate(), so re-resolve it here.
+        // This is called when the SystemUI theme (and with it the wallpaper text color) changes,
+        // and it also re-colors the title (the date) and every row item.
+        setTextColor(Utils.getColorAttrDefaultColor(mContext, R.attr.wallpaperTextColor));
     }
     public void dump(PrintWriter pw, String[] args) {
         pw.println("KeyguardSliceView:");
