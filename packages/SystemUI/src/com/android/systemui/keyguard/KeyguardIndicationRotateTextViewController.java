@@ -68,7 +68,7 @@ public class KeyguardIndicationRotateTextViewController extends
     private final StatusBarStateController mStatusBarStateController;
     private final KeyguardLogger mLogger;
     private final float mMaxAlpha;
-    private final ColorStateList mInitialTextColorState;
+    private ColorStateList mInitialTextColorState;
 
     // Stores @IndicationType => KeyguardIndication messages
     private final Map<Integer, KeyguardIndication> mIndicationMessages = new HashMap<>();
@@ -101,6 +101,19 @@ public class KeyguardIndicationRotateTextViewController extends
         mStatusBarStateController = statusBarStateController;
         mLogger = logger;
         init();
+    }
+
+    /**
+     * Updates the color used for transient indications.
+     *
+     * <p>The color is captured from the view in the constructor, which can happen before the
+     * wallpaper based SystemUI theme is applied, so {@link KeyguardIndicationController} pushes the
+     * current wallpaper text color here whenever that theme changes. Without it, transient
+     * indications (e.g. the quick affordance "touch &amp; hold" hint) would keep the color that was
+     * current when the view was inflated, while everything else follows the wallpaper.
+     */
+    public void setInitialTextColorState(ColorStateList textColorState) {
+        mInitialTextColorState = textColorState;
     }
 
     @Override

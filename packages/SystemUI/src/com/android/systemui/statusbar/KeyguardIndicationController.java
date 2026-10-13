@@ -456,6 +456,9 @@ public class KeyguardIndicationController {
                 mStatusBarStateController,
                 mKeyguardLogger
         );
+        // Its view may have been inflated before the wallpaper based theme was applied, so start
+        // it off with the color we just resolved.
+        mRotateTextViewController.setInitialTextColorState(mInitialTextColorState);
         updateDeviceEntryIndication(false /* animate */);
         updateOrganizedOwnedDevice();
         if (mBroadcastReceiver == null) {
@@ -1369,6 +1372,11 @@ public class KeyguardIndicationController {
 
     private void setIndicationColorToThemeColor() {
         mInitialTextColorState = wallpaperTextColor();
+        if (mRotateTextViewController != null) {
+            // The rotate controller stamps transient indications with the color of its view, which
+            // it only reads once in its constructor, so keep its copy in sync with the theme.
+            mRotateTextViewController.setInitialTextColorState(mInitialTextColorState);
+        }
     }
 
     /**
