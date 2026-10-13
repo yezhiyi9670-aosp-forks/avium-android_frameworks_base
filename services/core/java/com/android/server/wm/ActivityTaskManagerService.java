@@ -1758,6 +1758,10 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
                     // The target may well be in the background, which would normally prevent it
                     // from starting an activity. Here we definitely want the start to succeed.
                     .setAllowBalExemptionForSystemProcess(true)
+                    // Avium: a launch relayed through here is a system component (resolver,
+                    // chooser, intent forwarder) executing the user's own choice, so the app-launch
+                    // approval gate must leave it alone.
+                    .setRelayedAsCaller(true)
                     .execute();
         } catch (SecurityException e) {
             // XXX need to figure out how to propagate to original app.

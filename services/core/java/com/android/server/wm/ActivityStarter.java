@@ -426,6 +426,13 @@ class ActivityStarter {
         int filterCallingUid;
         PendingIntentRecord originatingPendingIntent;
         boolean allowBalExemptionForSystemProcess;
+        /*
+         * Avium: set when this launch is relayed by startActivityAsCaller(), i.e. by a system
+         * component (resolver, chooser, intent forwarder) executing the launch on behalf of the
+         * original caller. Only such components can reach that path, so the app-launch gate treats
+         * it as already user-confirmed.
+         */
+        boolean relayedAsCaller;
         boolean freezeScreen;
 
         final StringBuilder logMessage = new StringBuilder();
@@ -492,6 +499,7 @@ class ActivityStarter {
             filterCallingUid = UserHandle.USER_NULL;
             originatingPendingIntent = null;
             allowBalExemptionForSystemProcess = false;
+            relayedAsCaller = false;
             freezeScreen = false;
             errorCallbackToken = null;
         }
@@ -536,6 +544,7 @@ class ActivityStarter {
             filterCallingUid = request.filterCallingUid;
             originatingPendingIntent = request.originatingPendingIntent;
             allowBalExemptionForSystemProcess = request.allowBalExemptionForSystemProcess;
+            relayedAsCaller = request.relayedAsCaller;
             freezeScreen = request.freezeScreen;
             errorCallbackToken = request.errorCallbackToken;
         }
@@ -1352,9 +1361,15 @@ class ActivityStarter {
 
         final TaskDisplayArea suggestedLaunchDisplayArea =
                 computeSuggestedLaunchDisplayArea(inTask, sourceRecord, checkedOptions);
+        // Avium: hand the effective result binding of this launch to the interceptor. resultRecord
+        // already accounts for FLAG_ACTIVITY_FORWARD_RESULT, so an approved replay can restore the
+        // caller's startActivityForResult chain exactly.
         mInterceptor.setStates(userId, realCallingPid, realCallingUid, startFlags,
                 callingPackage,
-                callingFeatureId);
+                callingFeatureId,
+                resultRecord != null ? resultRecord.token : null, resultWho, requestCode,
+                sourceRecord != null && sourceRecord.isResolverOrDelegateActivity(),
+                request.relayedAsCaller);
         if (mInterceptor.intercept(intent, rInfo, aInfo, resolvedType, inTask, inTaskFragment,
                 callingPid, callingUid, checkedOptions, suggestedLaunchDisplayArea,
                 request.componentSpecified)) {
@@ -1486,9 +1501,9 @@ class ActivityStarter {
                 .setResolvedType(resolvedType)
                 .setActivityInfo(aInfo)
                 .setConfiguration(mService.getGlobalConfiguration())
-                .setResultTo(resultRecord)
-                .setResultWho(resultWho)
-                .setRequestCode(requestCode)
+                .setResultTo(mInterceptor.mClearCallerResult ? null : resultRecord)
+                .setResultWho(mInterceptor.mClearCallerResult ? null : resultWho)
+                .setRequestCode(mInterceptor.mClearCallerResult ? -1 : requestCode)
                 .setComponentSpecified(request.componentSpecified)
                 .setRootVoiceInteraction(voiceSession != null)
                 .setActivityOptions(checkedOptions)
@@ -3663,6 +3678,11 @@ class ActivityStarter {
     ActivityStarter setAllowBalExemptionForSystemProcess(
             boolean allowBalExemptionForSystemProcess) {
         mRequest.allowBalExemptionForSystemProcess = allowBalExemptionForSystemProcess;
+        return this;
+    }
+
+    ActivityStarter setRelayedAsCaller(boolean relayedAsCaller) {
+        mRequest.relayedAsCaller = relayedAsCaller;
         return this;
     }
 

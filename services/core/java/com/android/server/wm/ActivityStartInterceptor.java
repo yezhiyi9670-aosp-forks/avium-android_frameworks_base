@@ -102,6 +102,31 @@ class ActivityStartInterceptor {
     private int mStartFlags;
     private String mCallingPackage;
     private @Nullable String mCallingFeatureId;
+    /*
+     * Avium: the effective activity-result binding of the launch being intercepted (the activity
+     * that called startActivityForResult, if any). Replaying it when the user approves the app
+     * launch keeps the approved start equivalent to the one that was intercepted.
+     */
+    private IBinder mResultTo;
+    private String mResultWho;
+    private int mRequestCode = -1;
+    /*
+     * Avium: set when the intercepted launch is replaced by the approval dialog. The caller's
+     * result binding has already been captured for replay, so the dialog must not be registered
+     * as the caller's for-result child (see ActivityStarter#executeRequest): doing so would
+     * deliver RESULT_CANCELED to the caller as soon as the dialog closes and consume its pending
+     * result before the approved target can answer.
+     */
+    boolean mClearCallerResult;
+    /** Avium: the launch being intercepted was relayed by the system resolver / chooser. */
+    private boolean mSourceIsResolver;
+    /**
+     * Avium: the launch being intercepted was relayed through
+     * {@link ActivityTaskManagerService#startActivityAsCaller}. Only system components (resolvers,
+     * choosers, the intent forwarder) can reach that path and they are executing a choice the user
+     * already made, so the gate must not intercept these.
+     */
+    private boolean mRelayedAsCaller;
 
     /*
      * Per-intent states that were load from ActivityStarter and are subject to modifications
@@ -149,13 +174,20 @@ class ActivityStartInterceptor {
      * method should not be changed during intercept.
      */
     void setStates(int userId, int realCallingPid, int realCallingUid, int startFlags,
-            String callingPackage, @Nullable String callingFeatureId) {
+            String callingPackage, @Nullable String callingFeatureId,
+            @Nullable IBinder resultTo, @Nullable String resultWho, int requestCode,
+            boolean sourceIsResolver, boolean relayedAsCaller) {
         mRealCallingPid = realCallingPid;
         mRealCallingUid = realCallingUid;
         mUserId = userId;
         mStartFlags = startFlags;
         mCallingPackage = callingPackage;
         mCallingFeatureId = callingFeatureId;
+        mResultTo = resultTo;
+        mResultWho = resultWho;
+        mRequestCode = requestCode;
+        mSourceIsResolver = sourceIsResolver;
+        mRelayedAsCaller = relayedAsCaller;
     }
 
     private IntentSender createIntentSenderForOriginalIntent(int callingUid, int flags) {
@@ -235,6 +267,7 @@ class ActivityStartInterceptor {
         mActivityOptions = activityOptions;
         mPresumableLaunchDisplayArea = presumableLaunchDisplayArea;
         mComponentSpecified = componentSpecified;
+        mClearCallerResult = false;
 
         if (interceptQuietProfileIfNeeded()) {
             // If work profile is turned off, skip the work challenge since the profile can only
@@ -317,13 +350,32 @@ class ActivityStartInterceptor {
         final int callerUid;
         final int targetUid;
         final Intent intent;
-        final long expires = android.os.SystemClock.elapsedRealtime() + 60_000;
+        /*
+         * Avium: the result binding of the original launch, replayed when the user approves.
+         * Only populated for candidates in the caller's own user, since a cross-user launch
+         * doesn't deliver a result back.
+         */
+        final IBinder resultTo;
+        final String resultWho;
+        final int requestCode;
+        // Not final: the validity window is refreshed once the user makes a choice, because the
+        // approved launch is replayed from the approval callback rather than from the dialog.
+        long expires = android.os.SystemClock.elapsedRealtime() + 60_000;
         boolean allowed;
 
         LaunchApproval(int callerUid, int targetUid, Intent intent) {
+            this(callerUid, targetUid, intent, null /*resultTo*/, null /*resultWho*/,
+                    -1 /*requestCode*/);
+        }
+
+        LaunchApproval(int callerUid, int targetUid, Intent intent, @Nullable IBinder resultTo,
+                @Nullable String resultWho, int requestCode) {
             this.callerUid = callerUid;
             this.targetUid = targetUid;
             this.intent = new Intent(intent);
+            this.resultTo = resultTo;
+            this.resultWho = resultWho;
+            this.requestCode = requestCode;
         }
     }
 
@@ -395,6 +447,21 @@ class ActivityStartInterceptor {
         if (mIntent == null || mAInfo == null || mAInfo.applicationInfo == null
                 || mCallingPackage == null) return false;
         if (consumeLaunchApproval()) return false;
+        // Avium: never gate the system resolver / chooser. It is itself the user-facing "which
+        // app?" prompt, and it carries the real destination (EXTRA_INTENT for a chooser, its own
+        // intent for PackageManager's resolver), so gating it asks for confirmation of a
+        // confirmation and labels the request with a target the user never chose.
+        if ("com.android.intentresolver".equals(mAInfo.packageName)
+                || mService.getPackageManagerInternalLocked().isResolveActivityComponent(mAInfo)
+                // A launch relayed by the resolver is the user's own tap in that picker; the
+                // resolver just executes it under the original caller's identity. The same holds
+                // for any other system component relaying a launch through startActivityAsCaller
+                // (the cross-profile intent forwarder, for instance): those paths are only
+                // reachable by system-signed components, and the user already made the choice.
+                || mSourceIsResolver
+                || mRelayedAsCaller) {
+            return false;
+        }
         if (UserHandle.getAppId(mCallingUid) < android.os.Process.FIRST_APPLICATION_UID
                 || mCallingPackage.equals(mAInfo.packageName)
                 // SystemUI is the trusted host of TaskView bubbles. Its PendingIntent starts
@@ -437,6 +504,14 @@ class ActivityStartInterceptor {
         if (dialogInfo == null || dialogInfo.activityInfo == null) return false;
 
         final Intent original = new Intent(mIntent);
+        // Avium: ActivityTaskSupervisor#resolveActivity() writes the resolved component back into
+        // the intent, so when the caller did not specify a component this one is PackageManager's,
+        // not the caller's. Strip it again: the approved launch has to replay the caller's own
+        // intent verbatim. Otherwise an implicit request silently becomes a pinned one, and when
+        // the resolved component is the system resolver that resolver re-uses this very intent as
+        // its lookup intent and can no longer find any handler for it.
+        final Intent callerIntent = mComponentSpecified
+                ? new Intent(original) : new Intent(original).setComponent(null);
         final String targetPackage = mAInfo.packageName;
         final String sourcePackage = mCallingPackage;
         final int originalCaller = mCallingUid;
@@ -447,7 +522,7 @@ class ActivityStartInterceptor {
         deferredOptions.setPendingIntentCreatorBackgroundActivityStartMode(
                 MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
         final Bundle options = deferredOptions.toBundle();
-        final java.util.ArrayList<IntentSender> senders = new java.util.ArrayList<>();
+        final java.util.ArrayList<IIntentSender> senders = new java.util.ArrayList<>();
         final java.util.ArrayList<IBinder> tokens = new java.util.ArrayList<>();
         final java.util.ArrayList<String> keys = new java.util.ArrayList<>();
         final java.util.ArrayList<String> labels = new java.util.ArrayList<>();
@@ -468,7 +543,10 @@ class ActivityStartInterceptor {
                     && profile.id != owner) continue;
             if (!mUserManager.isUserUnlocked(profile.id)
                     || mUserManager.isQuietModeEnabled(profile.getUserHandle())) continue;
-            Intent candidate = new Intent(original);
+            final boolean sameUser = profile.id == sourceUser;
+            // Same-user candidates carry the caller's intent verbatim. A cross-profile launch has
+            // to name its destination explicitly, which is done after resolution below.
+            Intent candidate = sameUser ? new Intent(callerIntent) : new Intent(original);
             if (profile.id != sourceUser) candidate.prepareToLeaveUser(sourceUser);
             // A selector participates in resolution but must not be combined with setPackage.
             final Intent lookup = candidate.getSelector() == null
@@ -482,12 +560,24 @@ class ActivityStartInterceptor {
                 final String key = launchGrantKey(sourcePackage, sourceUser,
                         targetPackage, profile.id);
                 final IBinder token = new android.os.Binder();
-                candidate.setSelector(null);
-                candidate.setPackage(targetPackage);
-                candidate.setComponent(new android.content.ComponentName(targetPackage,
-                        resolved.activityInfo.name));
+                if (!sameUser) {
+                    // A cross-profile launch must name the destination explicitly.
+                    candidate.setSelector(null);
+                    candidate.setPackage(targetPackage);
+                    candidate.setComponent(new android.content.ComponentName(targetPackage,
+                            resolved.activityInfo.name));
+                }
+                // The approved pass re-resolves the intent, and ActivityTaskSupervisor#
+                // resolveActivity() writes the resolved component back before the gate sees it
+                // again, so bind the capability to that shape.
+                final Intent expected = new Intent(candidate);
+                expected.setComponent(new android.content.ComponentName(
+                        resolved.activityInfo.packageName, resolved.activityInfo.name));
                 final LaunchApproval approval = new LaunchApproval(originalCaller,
-                        resolved.activityInfo.applicationInfo.uid, candidate);
+                        resolved.activityInfo.applicationInfo.uid, expected,
+                        sameUser ? mResultTo : null,
+                        sameUser ? mResultWho : null,
+                        sameUser && mResultTo != null ? mRequestCode : -1);
                 Bundle capability = new Bundle();
                 capability.putBinder("token", token);
                 candidate.putExtra(APPROVAL_TOKEN, capability);
@@ -497,7 +587,7 @@ class ActivityStartInterceptor {
                         new String[] {resolvedType}, FLAG_ONE_SHOT | FLAG_IMMUTABLE, options);
                 if (sender == null) continue;
                 sLaunchApprovals.put(token, approval);
-                senders.add(new IntentSender(sender));
+                senders.add(sender);
                 tokens.add(token);
                 keys.add(key);
                 targetUsers.add(profile.id);
@@ -527,9 +617,19 @@ class ActivityStartInterceptor {
         final android.os.RemoteCallback callback = new android.os.RemoteCallback(result -> {
             final int choice = result.getInt("choice", -1);
             final int action = result.getInt("action", 0);
-            IntentSender sender = null;
+            IIntentSender approvedSender = null;
+            LaunchApproval approved = null;
+            // Remembered before the loop below removes the rejected candidates: a denial still has
+            // to resolve the caller's pending result, since the dialog no longer owns it.
+            LaunchApproval denied = null;
             boolean persisted = false;
             synchronized (mService.mGlobalLock) {
+                for (int i = 0; i < tokens.size(); i++) {
+                    final LaunchApproval candidate = sLaunchApprovals.get(tokens.get(i));
+                    if (denied == null && candidate != null && candidate.resultTo != null) {
+                        denied = candidate;
+                    }
+                }
                 for (int i = 0; i < tokens.size(); i++) {
                     final LaunchApproval approval = sLaunchApprovals.get(tokens.get(i));
                     if (i == choice && (action == 1 || action == 2) && approval != null
@@ -539,7 +639,11 @@ class ActivityStartInterceptor {
                             && mUserManager.isUserUnlocked(targetUsers.get(i))
                             && !mUserManager.isQuietModeEnabled(UserHandle.of(targetUsers.get(i)))) {
                         approval.allowed = true;
-                        sender = senders.get(i);
+                        // The user may take arbitrarily long to decide. The capability is only
+                        // consumed by the replay below, so refresh its validity window.
+                        approval.expires = android.os.SystemClock.elapsedRealtime() + 60_000;
+                        approvedSender = senders.get(i);
+                        approved = approval;
                         if (action == 2) {
                             try {
                                 String saved = android.provider.Settings.Secure.getStringForUser(
@@ -557,14 +661,38 @@ class ActivityStartInterceptor {
                         }
                     } else sLaunchApprovals.remove(tokens.get(i));
                 }
+                if (action == 0 && denied != null) {
+                    // The dialog is no longer the caller's for-result child (see
+                    // ActivityStarter#executeRequest), so a denial has to be delivered explicitly
+                    // or the caller would wait for a result that never comes.
+                    final ActivityRecord caller = ActivityRecord.forTokenLocked(denied.resultTo);
+                    if (caller != null) {
+                        caller.sendResult(android.os.Process.INVALID_UID, denied.resultWho,
+                                denied.requestCode, android.app.Activity.RESULT_CANCELED,
+                                null /* data */, null /* callerToken */, null /* dataGrants */);
+                    }
+                }
+            }
+            // Avium: replay the launch here, inside system_server and with the original result
+            // binding, instead of handing an IntentSender to the approval UI. The UI starts its
+            // sender with requestCode -1, so the activity result could never reach the caller,
+            // and its FLAG_ACTIVITY_FORWARD_RESULT was dropped because the PendingIntent is
+            // immutable. Replying without a "sender" leaves the existing UI to just finish().
+            if (approvedSender != null && approved != null) {
+                final ActivityOptions sendOptions = ActivityOptions.makeBasic();
+                sendOptions.setPendingIntentBackgroundActivityStartMode(
+                        MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                mService.startActivityIntentSender(null /*caller*/, approvedSender,
+                        null /*allowlistToken*/, null /*fillInIntent*/, null /*resolvedType*/,
+                        approved.resultTo, approved.resultWho, approved.requestCode,
+                        0 /*flagsMask*/, 0 /*flagsValues*/, sendOptions.toBundle());
             }
             final android.os.RemoteCallback response = result.getParcelable(
                     "response", android.os.RemoteCallback.class);
             if (response != null) {
-                Bundle approved = new Bundle();
-                if (sender != null) approved.putParcelable("sender", sender);
-                approved.putBoolean("persisted", persisted);
-                response.sendResult(approved);
+                Bundle reply = new Bundle();
+                reply.putBoolean("persisted", persisted);
+                response.sendResult(reply);
             }
         }, mService.mH);
         dialog.putExtra("labels", labels.toArray(new String[0]));
@@ -585,6 +713,9 @@ class ActivityStartInterceptor {
         mRInfo = dialogInfo;
         mAInfo = dialogInfo.activityInfo;
         mResolvedType = null;
+        // The dialog replaces the launch, so it must not inherit the caller's result binding;
+        // the deferred replay below re-attaches it to the real target.
+        mClearCallerResult = true;
         // Match the platform's credential/harmful-app interceptors: retain attribution
         // to the real caller while the system substitutes a non-exported confirmation UI.
         mCallingUid = mRealCallingUid;
