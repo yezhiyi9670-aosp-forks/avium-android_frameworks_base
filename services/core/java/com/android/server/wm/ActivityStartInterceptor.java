@@ -567,6 +567,15 @@ class ActivityStartInterceptor {
                     candidate.setComponent(new android.content.ComponentName(targetPackage,
                             resolved.activityInfo.name));
                 }
+                // The replay below already carries the result binding that
+                // ActivityStarter's FLAG_ACTIVITY_FORWARD_RESULT handling materialized
+                // (mResultTo/mResultWho/mRequestCode), so the flag must not survive on the
+                // deferred intent: supplying the flag together with a request code makes
+                // ActivityStarter reject the launch with START_FORWARD_AND_REQUEST_CONFLICT
+                // (-93) and the approved target never appears. This is how a trampoline
+                // launch (e.g. DocumentsUI's TrampolineActivity forwarding to the media
+                // picker) is replayed.
+                candidate.removeFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT);
                 // The approved pass re-resolves the intent, and ActivityTaskSupervisor#
                 // resolveActivity() writes the resolved component back before the gate sees it
                 // again, so bind the capability to that shape.
@@ -680,8 +689,15 @@ class ActivityStartInterceptor {
             // immutable. Replying without a "sender" leaves the existing UI to just finish().
             if (approvedSender != null && approved != null) {
                 final ActivityOptions sendOptions = ActivityOptions.makeBasic();
+                // The sender here is system_server acting on the user's explicit approval, and by
+                // the time the user decides the app that launched the picker may no longer have a
+                // visible window (DocumentsUI's TrampolineActivity finishes as soon as it hands
+                // off). MODE_BACKGROUND_ACTIVITY_START_ALLOWED is not enough for that case: the
+                // only exemption left is the persistent-system-process real caller, which requires
+                // ALLOW_ALWAYS (or an allowlist token) in BackgroundActivityStartController, and
+                // the launch would otherwise be aborted with START_ABORTED (BAL_BLOCK).
                 sendOptions.setPendingIntentBackgroundActivityStartMode(
-                        MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS);
                 mService.startActivityIntentSender(null /*caller*/, approvedSender,
                         null /*allowlistToken*/, null /*fillInIntent*/, null /*resolvedType*/,
                         approved.resultTo, approved.resultWho, approved.requestCode,
