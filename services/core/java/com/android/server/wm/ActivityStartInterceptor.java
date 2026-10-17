@@ -51,6 +51,7 @@ import android.content.IIntentSender;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManagerInternal;
 import android.content.pm.ResolveInfo;
 import android.content.pm.SuspendDialogInfo;
@@ -427,20 +428,44 @@ class ActivityStartInterceptor {
     @VisibleForTesting
     static boolean isSystemLaunchFlow(ActivityInfo target, String permissionController,
             boolean platformSigned) {
-        if (target == null || target.applicationInfo == null
-                || !target.applicationInfo.isSystemApp()) return false;
+        if (target == null || target.applicationInfo == null) return false;
         final String pkg = target.packageName;
-        // Use the configured controller, including modular/vendor implementations.
-        if (pkg != null && pkg.equals(permissionController)) return true;
+        if (pkg == null) return false;
+        // The permission controller and the media provider are mainline modules signed with their
+        // own keys instead of the platform key (the media provider uses the "media" certificate)
+        // and can live in an APEX, so neither the platform signature nor
+        // ApplicationInfo#isSystemApp can be required for them. Their exact package name plus the
+        // preinstalled check identifies them. The media provider is where the system photo picker
+        // (GET_CONTENT / PICK_IMAGES) lives, and it mediates the request the same way the
+        // documents picker does.
+        if (pkg.equals(permissionController) || isMediaProviderPackage(pkg)) {
+            return isPreinstalled(target.applicationInfo);
+        }
+        if (!target.applicationInfo.isSystemApp()) return false;
         if (!platformSigned) return false;
         return "com.android.settings".equals(pkg)
                 || "com.android.systemui".equals(pkg)
                 || "com.android.documentsui".equals(pkg)
                 || "com.google.android.documentsui".equals(pkg)
                 || "com.android.packageinstaller".equals(pkg)
-                || "com.google.android.packageinstaller".equals(pkg)
-                || "com.android.providers.media.module".equals(pkg)
+                || "com.google.android.packageinstaller".equals(pkg);
+    }
+
+    /** Package names of the module that hosts the system media / photo picker. */
+    private static boolean isMediaProviderPackage(String pkg) {
+        return "com.android.providers.media.module".equals(pkg)
                 || "com.google.android.providers.media.module".equals(pkg);
+    }
+
+    /**
+     * Whether the app ships with the system image, either on a system partition or inside an APEX.
+     * APEX modules are signed with their own certificates and are not guaranteed to carry
+     * {@link ApplicationInfo#FLAG_SYSTEM}, so the APEX path is checked as well.
+     */
+    private static boolean isPreinstalled(ApplicationInfo ai) {
+        return ai.isSystemApp() || ai.isUpdatedSystemApp() || ai.isSystemExt()
+                || ai.isProduct() || ai.isVendor()
+                || (ai.sourceDir != null && ai.sourceDir.startsWith("/apex/"));
     }
 
     private boolean interceptAppLaunchApproval() {

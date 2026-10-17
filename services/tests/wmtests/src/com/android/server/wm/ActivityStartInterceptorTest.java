@@ -141,12 +141,24 @@ public class ActivityStartInterceptorTest {
         target.applicationInfo = new ApplicationInfo();
         target.applicationInfo.flags = ApplicationInfo.FLAG_SYSTEM;
         for (String pkg : new String[] {"com.android.settings", "com.android.systemui",
-                "com.android.documentsui", "com.android.packageinstaller",
-                "com.android.providers.media.module"}) {
+                "com.android.documentsui", "com.android.packageinstaller"}) {
             target.packageName = pkg;
             assertTrue(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
             assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", false));
         }
+        // The media provider hosts the system picker. It is a module signed with its own
+        // certificate, so it must be exempt without the platform signature, but only while the
+        // APK is actually preinstalled.
+        for (String pkg : new String[] {"com.android.providers.media.module",
+                "com.google.android.providers.media.module"}) {
+            target.packageName = pkg;
+            assertTrue(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", true));
+            assertTrue(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", false));
+        }
+        target.packageName = "com.android.providers.media.module";
+        target.applicationInfo.flags = 0;
+        assertFalse(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", false));
+        target.applicationInfo.flags = ApplicationInfo.FLAG_SYSTEM;
         target.packageName = "controller";
         assertTrue(ActivityStartInterceptor.isSystemLaunchFlow(target, "controller", false));
         target.applicationInfo.flags = 0;
